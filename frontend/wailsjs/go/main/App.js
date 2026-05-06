@@ -46,6 +46,14 @@ export function GetModels() {
   return window['go']['main']['App']['GetModels']();
 }
 
+export function GetRecordingHotkey() {
+  return window['go']['main']['App']['GetRecordingHotkey']();
+}
+
+export function GetRecordingHotkeyDisplayName() {
+  return window['go']['main']['App']['GetRecordingHotkeyDisplayName']();
+}
+
 export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
@@ -92,6 +100,14 @@ export function SetOpenAIKey(arg1) {
 
 export function SetProvider(arg1) {
   return window['go']['main']['App']['SetProvider'](arg1);
+}
+
+export function SetRecordingHotkey(arg1) {
+  return window['go']['main']['App']['SetRecordingHotkey'](arg1);
+}
+
+export function SetSoundEnabled(arg1) {
+  return window['go']['main']['App']['SetSoundEnabled'](arg1);
 }
 
 export function SetTray(arg1) {

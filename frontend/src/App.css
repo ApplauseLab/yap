@@ -437,41 +437,45 @@ body {
 
 /* Stats Bar */
 .stats-bar {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--bg-card);
-  border-radius: 12px;
+  display: flex;
   margin: 20px;
-  overflow: hidden;
+  background: var(--border);
+  border-radius: 12px;
+  gap: 1px;
 }
 
-.stat-item {
+.stats-bar > div {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 12px;
+  justify-content: center;
+  padding: 16px 8px;
   background: var(--bg-sidebar);
 }
 
+.stats-bar > div:first-child {
+  border-radius: 12px 0 0 12px;
+}
+
+.stats-bar > div:last-child {
+  border-radius: 0 12px 12px 0;
+}
+
 .stat-value {
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 600;
   color: var(--text-primary);
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .stat-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-top: 4px;
-}
-
-.stat-sublabel {
   font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Get Started Section */
@@ -767,44 +771,21 @@ body {
   transform: translateX(20px);
 }
 
-.hotkey-display {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 16px;
+.hotkey-status {
+  margin-top: 12px;
+  padding: 8px 12px;
   background: var(--bg-card);
-  border-radius: 12px;
+  border-radius: 8px;
+  text-align: center;
 }
 
-.hotkey-display kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 10px;
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text-primary);
-}
-
-.hotkey-display .status {
-  margin-left: auto;
+.hotkey-status .status {
   font-size: 13px;
   color: var(--text-muted);
 }
 
-.hotkey-display .status.active {
+.hotkey-status .status.active {
   color: var(--success);
-}
-
-.hotkey-note {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 .settings-footer {

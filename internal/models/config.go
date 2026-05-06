@@ -26,13 +26,20 @@ type Config struct {
 	// Show notification after transcription
 	ShowNotification bool `json:"showNotification"`
 
-	// Hotkey configuration
+	// Hotkey configuration (legacy - kept for compatibility)
 	HotkeyModifiers []string `json:"hotkeyModifiers"` // e.g., ["cmd", "shift"]
 	HotkeyKey       string   `json:"hotkeyKey"`       // e.g., "space"
+
+	// Recording hotkey type: "rightOption", "leftOption", "fn", "doubleRightOption"
+	RecordingHotkey string `json:"recordingHotkey"`
+
+	// Sound enabled for recording start/stop
+	SoundEnabled *bool `json:"soundEnabled,omitempty"`
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
+	soundEnabled := true
 	return &Config{
 		Provider:         "local",
 		Model:            "base.en",
@@ -40,6 +47,8 @@ func DefaultConfig() *Config {
 		ShowNotification: true,
 		HotkeyModifiers:  []string{"cmd", "shift"},
 		HotkeyKey:        "space",
+		RecordingHotkey:  "rightOption",
+		SoundEnabled:     &soundEnabled,
 	}
 }
 
@@ -153,5 +162,17 @@ func (cm *ConfigManager) SetAutoPaste(enabled bool) error {
 // SetAudioInputDevice updates the audio input device setting
 func (cm *ConfigManager) SetAudioInputDevice(deviceName string) error {
 	cm.config.AudioInputDevice = deviceName
+	return cm.Save()
+}
+
+// SetRecordingHotkey updates the recording hotkey setting
+func (cm *ConfigManager) SetRecordingHotkey(hotkey string) error {
+	cm.config.RecordingHotkey = hotkey
+	return cm.Save()
+}
+
+// SetSoundEnabled updates the sound enabled setting
+func (cm *ConfigManager) SetSoundEnabled(enabled bool) error {
+	cm.config.SoundEnabled = &enabled
 	return cm.Save()
 }

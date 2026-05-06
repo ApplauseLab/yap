@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
-import recordingSound from './assets/sounds/recording-start-sound-1.mp3';
+import recordingStartSound from './assets/sounds/toggle-button-on.mp3';
+import recordingStopSound from './assets/sounds/toggle-button-off.mp3';
 import {
   GetState,
   ToggleRecording,
@@ -13,6 +14,7 @@ import {
   DownloadModel,
   GetConfig,
   SetAutoPaste,
+  SetSoundEnabled,
   GetHistory,
   ClearHistory,
   CopyHistoryItem,
@@ -21,6 +23,8 @@ import {
   GetAudioInputDevices,
   SetAudioInputDevice,
   GetStats,
+  GetRecordingHotkey,
+  SetRecordingHotkey,
   Quit,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogInfo } from '../wailsjs/runtime/runtime';
@@ -50,6 +54,7 @@ interface Config {
   openaiApiKey?: string;
   audioInputDevice?: string;
   autoPaste: boolean;
+  soundEnabled?: boolean;
 }
 
 interface HistoryItem {
@@ -115,6 +120,7 @@ function App() {
     totalRecordings: 0,
     totalWords: 0,
   });
+  const [currentHotkey, setCurrentHotkey] = useState<string>('rightOption');
 
   useEffect(() => {
     GetState().then((state: AppState) => setAppState(state));
@@ -127,6 +133,7 @@ function App() {
     GetHistory().then((h: HistoryItem[]) => setHistory(h));
     GetAudioInputDevices().then((devices: AudioInputDevice[]) => setAudioDevices(devices));
     GetStats().then((s: UsageStats) => setStats(s));
+    GetRecordingHotkey().then((h: string) => setCurrentHotkey(h));
 
     LogInfo('Setting up EventsOn for stateChanged');
     const cleanup = EventsOn('stateChanged', (state: AppState) => {
@@ -163,31 +170,40 @@ function App() {
     return () => { if (interval) clearInterval(interval); };
   }, [appState.state]);
 
-  // Track previous state for sound effect
+  // Track if we triggered the toggle (to avoid double-playing sound)
+  const userTriggeredRef = useRef(false);
   const prevStateRef = useRef<string>('ready');
-  
-  // Play sound effect when recording starts or stops
+
+  // Play sound for recording state changes
+  const playRecordingSound = useCallback((isStarting: boolean) => {
+    if (config?.soundEnabled === false) return;
+    const audio = new Audio(isStarting ? recordingStartSound : recordingStopSound);
+    audio.volume = 0.5;
+    audio.play().catch(err => console.error('Failed to play recording sound:', err));
+  }, [config?.soundEnabled]);
+
+  // Handle hotkey-triggered state changes (play sound if we didn't trigger it)
   useEffect(() => {
     const prevState = prevStateRef.current;
     const currentState = appState.state;
     
-    // Play sound when starting recording (transitioning to 'recording')
-    // or when stopping recording (transitioning from 'recording' to something else)
-    if (
-      (prevState !== 'recording' && currentState === 'recording') ||
-      (prevState === 'recording' && currentState !== 'recording')
-    ) {
-      const audio = new Audio(recordingSound);
-      audio.volume = 0.5;
-      audio.play().catch(err => console.error('Failed to play recording sound:', err));
+    const isStarting = prevState !== 'recording' && currentState === 'recording';
+    const isStopping = prevState === 'recording' && currentState !== 'recording';
+    
+    if ((isStarting || isStopping) && !userTriggeredRef.current) {
+      playRecordingSound(isStarting); // Hotkey triggered - play sound here
     }
     
+    userTriggeredRef.current = false; // Reset flag
     prevStateRef.current = currentState;
-  }, [appState.state]);
+  }, [appState.state, playRecordingSound]);
 
   const handleToggleRecording = useCallback(async () => {
+    const isCurrentlyRecording = appState.state === 'recording';
+    userTriggeredRef.current = true;
+    playRecordingSound(!isCurrentlyRecording); // Play start or stop sound
     try { await ToggleRecording(); } catch (err) { console.error(err); }
-  }, []);
+  }, [playRecordingSound, appState.state]);
 
   const handleCancelRecording = useCallback(async () => {
     try { await CancelRecording(); } catch (err) { console.error(err); }
@@ -284,10 +300,29 @@ function App() {
     GetConfig().then((c: Config) => setConfig(c));
   }, []);
 
+  const handleSoundEnabledChange = useCallback(async (enabled: boolean) => {
+    await SetSoundEnabled(enabled);
+    GetConfig().then((c: Config) => setConfig(c));
+  }, []);
+
   const handleAudioDeviceChange = useCallback(async (deviceName: string) => {
     setSelectedAudioDevice(deviceName);
     await SetAudioInputDevice(deviceName);
   }, []);
+
+  const handleHotkeyChange = useCallback(async (hotkeyType: string) => {
+    setCurrentHotkey(hotkeyType);
+    await SetRecordingHotkey(hotkeyType);
+  }, []);
+
+  const getHotkeyDisplayName = (hotkeyType: string): string => {
+    switch (hotkeyType) {
+      case 'leftOption': return 'Left Option (⌥)';
+      case 'fn': return 'Fn';
+      case 'doubleRightOption': return 'Double-tap Right Option';
+      default: return 'Right Option (⌥)';
+    }
+  };
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -366,25 +401,21 @@ function App() {
           <div className="home-page">
             {/* Stats Bar */}
             <div className="stats-bar">
-              <div className="stat-item">
-                <span className="stat-value">{Math.round(stats.averageWPM)}</span>
-                <span className="stat-label">WPM</span>
-                <span className="stat-sublabel">Average speed</span>
+              <div>
+                <div className="stat-value">{Math.round(stats.averageWPM)}</div>
+                <div className="stat-label">WPM</div>
               </div>
-              <div className="stat-item">
-                <span className="stat-value">{stats.wordsThisWeek}</span>
-                <span className="stat-label">Words</span>
-                <span className="stat-sublabel">This week</span>
+              <div>
+                <div className="stat-value">{stats.wordsThisWeek}</div>
+                <div className="stat-label">Words</div>
               </div>
-              <div className="stat-item">
-                <span className="stat-value">{stats.recordingsThisWeek}</span>
-                <span className="stat-label">Recordings</span>
-                <span className="stat-sublabel">This week</span>
+              <div>
+                <div className="stat-value">{stats.recordingsThisWeek}</div>
+                <div className="stat-label">Recordings</div>
               </div>
-              <div className="stat-item">
-                <span className="stat-value">{Math.round(stats.timeSavedThisWeek)}</span>
-                <span className="stat-label">Minutes</span>
-                <span className="stat-sublabel">Saved this week</span>
+              <div>
+                <div className="stat-value">{Math.round(stats.timeSavedThisWeek)}</div>
+                <div className="stat-label">Min Saved</div>
               </div>
             </div>
 
@@ -599,17 +630,47 @@ function App() {
                   <span className="slider" />
                 </label>
               </div>
+
+              <div className="setting-row">
+                <div className="setting-info">
+                  <label>Sound feedback</label>
+                  <p>Play sound when starting/stopping recording</p>
+                </div>
+                <label className="switch">
+                  <input
+                    type="checkbox"
+                    checked={config?.soundEnabled !== false}
+                    onChange={(e) => handleSoundEnabledChange(e.target.checked)}
+                  />
+                  <span className="slider" />
+                </label>
+              </div>
             </section>
 
             <section className="settings-section">
               <h2>Keyboard Shortcut</h2>
-              <div className="hotkey-display">
-                <kbd>Right ⌥</kbd>
+              
+              <div className="setting-row">
+                <div className="setting-info">
+                  <label>Recording Hotkey</label>
+                  <p>Press this key to start/stop recording</p>
+                </div>
+                <select 
+                  value={currentHotkey}
+                  onChange={(e) => handleHotkeyChange(e.target.value)}
+                >
+                  <option value="rightOption">Right Option (⌥)</option>
+                  <option value="leftOption">Left Option (⌥)</option>
+                  <option value="fn">Fn</option>
+                  <option value="doubleRightOption">Double-tap Right Option</option>
+                </select>
+              </div>
+              
+              <div className="hotkey-status">
                 <span className={`status ${appState.hotkeyEnabled ? 'active' : ''}`}>
-                  {appState.hotkeyEnabled ? 'Active' : 'Not registered'}
+                  {appState.hotkeyEnabled ? 'Hotkey Active' : 'Hotkey Not Registered'}
                 </span>
               </div>
-              <p className="hotkey-note">Press Right Option key to start/stop recording</p>
             </section>
 
             <div className="settings-footer">

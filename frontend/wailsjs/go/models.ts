@@ -118,6 +118,8 @@ export namespace models {
 	    showNotification: boolean;
 	    hotkeyModifiers: string[];
 	    hotkeyKey: string;
+	    recordingHotkey: string;
+	    soundEnabled?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -133,6 +135,8 @@ export namespace models {
 	        this.showNotification = source["showNotification"];
 	        this.hotkeyModifiers = source["hotkeyModifiers"];
 	        this.hotkeyKey = source["hotkeyKey"];
+	        this.recordingHotkey = source["recordingHotkey"];
+	        this.soundEnabled = source["soundEnabled"];
 	    }
 	}
 

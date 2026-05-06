@@ -13,14 +13,18 @@ package hotkey
 static id gEventMonitor = nil;
 static id gKeyEventMonitor = nil;
 static id gLocalKeyEventMonitor = nil;
-static BOOL gRightOptionDown = NO;
+static BOOL gModifierKeyDown = NO;
 static BOOL gEscapeEnabled = NO;
+static int gCurrentHotkeyType = 0; // 0=rightOption, 1=leftOption, 2=fn, 3=doubleRightOption
+static NSTimeInterval gLastRightOptionPress = 0;
 
 extern void goHotkeyPressed(void);
 extern void goEscapePressed(void);
 
 // Key codes
 #define kVK_RightOption 0x3D
+#define kVK_LeftOption 0x3A
+#define kVK_Function 0x3F
 
 // Check if accessibility permissions are granted
 static BOOL checkAccessibilityPermissions(void) {
@@ -33,42 +37,103 @@ static BOOL checkAccessibilityPermissions(void) {
     return trusted;
 }
 
-static void startMonitoring(void) {
+static void startMonitoringWithType(int hotkeyType) {
     if (gEventMonitor != nil) {
-        return; // Already monitoring
+        [NSEvent removeMonitor:gEventMonitor];
+        gEventMonitor = nil;
     }
+    
+    gCurrentHotkeyType = hotkeyType;
+    gModifierKeyDown = NO;
+    gLastRightOptionPress = 0;
     
     // Check accessibility permissions first
     if (!checkAccessibilityPermissions()) {
         NSLog(@"Cannot start monitoring without accessibility permissions");
-        // Still try to register - it might work if permissions are granted later
     }
     
     // Monitor for flagsChanged events (modifier keys)
     gEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged
         handler:^(NSEvent *event) {
-            // Check if right option key
-            if ([event keyCode] == kVK_RightOption) {
-                // Check if key is being pressed (not released)
-                if ([event modifierFlags] & NSEventModifierFlagOption) {
-                    if (!gRightOptionDown) {
-                        gRightOptionDown = YES;
-                        goHotkeyPressed();
+            UInt16 keyCode = [event keyCode];
+            NSEventModifierFlags flags = [event modifierFlags];
+            
+            switch (gCurrentHotkeyType) {
+                case 0: // rightOption
+                    if (keyCode == kVK_RightOption) {
+                        if (flags & NSEventModifierFlagOption) {
+                            if (!gModifierKeyDown) {
+                                gModifierKeyDown = YES;
+                                goHotkeyPressed();
+                            }
+                        } else {
+                            gModifierKeyDown = NO;
+                        }
                     }
-                } else {
-                    gRightOptionDown = NO;
-                }
+                    break;
+                    
+                case 1: // leftOption
+                    if (keyCode == kVK_LeftOption) {
+                        if (flags & NSEventModifierFlagOption) {
+                            if (!gModifierKeyDown) {
+                                gModifierKeyDown = YES;
+                                goHotkeyPressed();
+                            }
+                        } else {
+                            gModifierKeyDown = NO;
+                        }
+                    }
+                    break;
+                    
+                case 2: // fn
+                    if (keyCode == kVK_Function) {
+                        if (flags & NSEventModifierFlagFunction) {
+                            if (!gModifierKeyDown) {
+                                gModifierKeyDown = YES;
+                                goHotkeyPressed();
+                            }
+                        } else {
+                            gModifierKeyDown = NO;
+                        }
+                    }
+                    break;
+                    
+                case 3: // doubleRightOption (double tap)
+                    if (keyCode == kVK_RightOption) {
+                        if (flags & NSEventModifierFlagOption) {
+                            NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+                            if (now - gLastRightOptionPress < 0.4) { // 400ms window for double tap
+                                goHotkeyPressed();
+                                gLastRightOptionPress = 0; // Reset to prevent triple-tap
+                            } else {
+                                gLastRightOptionPress = now;
+                            }
+                        }
+                    }
+                    break;
             }
         }];
     
-    NSLog(@"Right Option key monitoring started");
+    NSString *hotkeyName;
+    switch (hotkeyType) {
+        case 0: hotkeyName = @"Right Option"; break;
+        case 1: hotkeyName = @"Left Option"; break;
+        case 2: hotkeyName = @"Fn"; break;
+        case 3: hotkeyName = @"Double-tap Right Option"; break;
+        default: hotkeyName = @"Unknown"; break;
+    }
+    NSLog(@"%@ key monitoring started", hotkeyName);
+}
+
+static void startMonitoring(void) {
+    startMonitoringWithType(0); // Default to right option
 }
 
 static void stopMonitoring(void) {
     if (gEventMonitor != nil) {
         [NSEvent removeMonitor:gEventMonitor];
         gEventMonitor = nil;
-        gRightOptionDown = NO;
+        gModifierKeyDown = NO;
     }
 }
 
@@ -214,6 +279,37 @@ func (m *Manager) Unregister() error {
 	m.running = false
 
 	return nil
+}
+
+// SetHotkeyType changes the hotkey type
+// Types: "rightOption", "leftOption", "fn", "doubleRightOption"
+func (m *Manager) SetHotkeyType(hotkeyType string) {
+	var typeInt C.int
+	switch hotkeyType {
+	case "leftOption":
+		typeInt = 1
+	case "fn":
+		typeInt = 2
+	case "doubleRightOption":
+		typeInt = 3
+	default: // "rightOption"
+		typeInt = 0
+	}
+	C.startMonitoringWithType(typeInt)
+}
+
+// GetHotkeyDisplayName returns the display name for a hotkey type
+func GetHotkeyDisplayName(hotkeyType string) string {
+	switch hotkeyType {
+	case "leftOption":
+		return "Left Option (⌥)"
+	case "fn":
+		return "Fn"
+	case "doubleRightOption":
+		return "Double-tap Right Option"
+	default:
+		return "Right Option (⌥)"
+	}
 }
 
 // IsRegistered returns whether hotkey is registered

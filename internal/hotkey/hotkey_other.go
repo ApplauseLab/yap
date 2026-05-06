@@ -63,3 +63,22 @@ func (m *Manager) EnableEscapeCancel(cb func()) {
 func (m *Manager) DisableEscapeCancel() {
 	// TODO: Implement for other platforms
 }
+
+// SetHotkeyType changes the hotkey type (no-op on non-darwin)
+func (m *Manager) SetHotkeyType(hotkeyType string) {
+	// TODO: Implement for other platforms
+}
+
+// GetHotkeyDisplayName returns the display name for a hotkey type
+func GetHotkeyDisplayName(hotkeyType string) string {
+	switch hotkeyType {
+	case "leftOption":
+		return "Left Option (⌥)"
+	case "fn":
+		return "Fn"
+	case "doubleRightOption":
+		return "Double-tap Right Option"
+	default:
+		return "Right Option (⌥)"
+	}
+}

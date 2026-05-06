@@ -169,7 +169,13 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Printf("Warning: Failed to register hotkey: %v\n", err)
 	} else {
 		a.hotkeyEnabled = true
-		fmt.Println("Global hotkey registered: Cmd+Shift+Space")
+		// Apply configured hotkey type
+		hotkeyType := configManager.Get().RecordingHotkey
+		if hotkeyType == "" {
+			hotkeyType = "rightOption"
+		}
+		a.hotkeyManager.SetHotkeyType(hotkeyType)
+		fmt.Printf("Global hotkey registered: %s\n", hotkey.GetHotkeyDisplayName(hotkeyType))
 	}
 
 	// Load history from disk
@@ -671,6 +677,11 @@ func (a *App) SetAutoPaste(enabled bool) error {
 	return a.configManager.SetAutoPaste(enabled)
 }
 
+// SetSoundEnabled enables/disables recording start/stop sound
+func (a *App) SetSoundEnabled(enabled bool) error {
+	return a.configManager.SetSoundEnabled(enabled)
+}
+
 // AudioInputDevice represents an audio input device for the frontend
 type AudioInputDevice struct {
 	Name      string `json:"name"`
@@ -724,6 +735,45 @@ func (a *App) GetStats() UsageStats {
 		TotalRecordings:    stats.TotalRecordings,
 		TotalWords:         stats.TotalWords,
 	}
+}
+
+// SetRecordingHotkey sets the recording hotkey
+func (a *App) SetRecordingHotkey(hotkeyType string) error {
+	// Validate hotkey type
+	validTypes := map[string]bool{
+		"rightOption":       true,
+		"leftOption":        true,
+		"fn":                true,
+		"doubleRightOption": true,
+	}
+	if !validTypes[hotkeyType] {
+		return fmt.Errorf("invalid hotkey type: %s", hotkeyType)
+	}
+	
+	// Update the hotkey manager
+	if a.hotkeyManager != nil {
+		a.hotkeyManager.SetHotkeyType(hotkeyType)
+	}
+	
+	// Save to config
+	return a.configManager.SetRecordingHotkey(hotkeyType)
+}
+
+// GetRecordingHotkey returns the current recording hotkey type
+func (a *App) GetRecordingHotkey() string {
+	if a.configManager != nil {
+		hotkeyType := a.configManager.Get().RecordingHotkey
+		if hotkeyType == "" {
+			return "rightOption"
+		}
+		return hotkeyType
+	}
+	return "rightOption"
+}
+
+// GetRecordingHotkeyDisplayName returns the display name for the current hotkey
+func (a *App) GetRecordingHotkeyDisplayName() string {
+	return hotkey.GetHotkeyDisplayName(a.GetRecordingHotkey())
 }
 
 // DownloadModel downloads a model

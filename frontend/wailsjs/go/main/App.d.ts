@@ -25,6 +25,10 @@ export function GetHistory():Promise<Array<main.HistoryItem>>;
 
 export function GetModels():Promise<Array<main.ModelInfo>>;
 
+export function GetRecordingHotkey():Promise<string>;
+
+export function GetRecordingHotkeyDisplayName():Promise<string>;
+
 export function GetState():Promise<main.AppState>;
 
 export function GetStats():Promise<main.UsageStats>;
@@ -48,6 +52,10 @@ export function SetModel(arg1:string):Promise<void>;
 export function SetOpenAIKey(arg1:string):Promise<void>;
 
 export function SetProvider(arg1:string):Promise<void>;
+
+export function SetRecordingHotkey(arg1:string):Promise<void>;
+
+export function SetSoundEnabled(arg1:boolean):Promise<void>;
 
 export function SetTray(arg1:any):Promise<void>;
 
