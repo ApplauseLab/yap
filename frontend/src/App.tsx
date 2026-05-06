@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
-import recordingStartSound from './assets/sounds/toggle-button-on.mp3';
-import recordingStopSound from './assets/sounds/toggle-button-off.mp3';
+import recordingStartSound from './assets/sounds/start.mp3';
+import recordingStopSound from './assets/sounds/stop.mp3';
 import {
   GetState,
   ToggleRecording,
@@ -170,19 +170,33 @@ function App() {
     return () => { if (interval) clearInterval(interval); };
   }, [appState.state]);
 
-  // Track if we triggered the toggle (to avoid double-playing sound)
-  const userTriggeredRef = useRef(false);
+  // Track previous state for sound effect
   const prevStateRef = useRef<string>('ready');
 
-  // Play sound for recording state changes
-  const playRecordingSound = useCallback((isStarting: boolean) => {
-    if (config?.soundEnabled === false) return;
-    const audio = new Audio(isStarting ? recordingStartSound : recordingStopSound);
-    audio.volume = 0.5;
-    audio.play().catch(err => console.error('Failed to play recording sound:', err));
+  // Play start sound (returns promise that resolves after sound plays)
+  const playStartSound = useCallback(() => {
+    if (config?.soundEnabled === false) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const audio = new Audio(recordingStartSound);
+      audio.volume = 0.6;
+      audio.play().catch(err => console.error('Failed to play start sound:', err));
+      // Wait for sound to finish before resolving (so mic doesn't capture it)
+      setTimeout(resolve, 500);
+    });
   }, [config?.soundEnabled]);
 
-  // Handle hotkey-triggered state changes (play sound if we didn't trigger it)
+  // Play stop sound (after recording ends, so it won't be captured)
+  const playStopSound = useCallback(() => {
+    if (config?.soundEnabled === false) return;
+    const audio = new Audio(recordingStopSound);
+    audio.volume = 0.6;
+    audio.play().catch(err => console.error('Failed to play stop sound:', err));
+  }, [config?.soundEnabled]);
+
+  // Track if we triggered via button (to avoid double-playing start sound)
+  const buttonTriggeredRef = useRef(false);
+
+  // Play sounds on state changes
   useEffect(() => {
     const prevState = prevStateRef.current;
     const currentState = appState.state;
@@ -190,20 +204,34 @@ function App() {
     const isStarting = prevState !== 'recording' && currentState === 'recording';
     const isStopping = prevState === 'recording' && currentState !== 'recording';
     
-    if ((isStarting || isStopping) && !userTriggeredRef.current) {
-      playRecordingSound(isStarting); // Hotkey triggered - play sound here
+    // For hotkey-triggered start, play sound (may capture briefly)
+    if (isStarting && !buttonTriggeredRef.current) {
+      if (config?.soundEnabled !== false) {
+        const audio = new Audio(recordingStartSound);
+        audio.volume = 0.6;
+        audio.play().catch(err => console.error('Failed to play start sound:', err));
+      }
     }
     
-    userTriggeredRef.current = false; // Reset flag
+    if (isStopping) {
+      playStopSound();
+    }
+    
+    buttonTriggeredRef.current = false;
     prevStateRef.current = currentState;
-  }, [appState.state, playRecordingSound]);
+  }, [appState.state, playStopSound, config?.soundEnabled]);
 
   const handleToggleRecording = useCallback(async () => {
     const isCurrentlyRecording = appState.state === 'recording';
-    userTriggeredRef.current = true;
-    playRecordingSound(!isCurrentlyRecording); // Play start or stop sound
-    try { await ToggleRecording(); } catch (err) { console.error(err); }
-  }, [playRecordingSound, appState.state]);
+    try {
+      if (!isCurrentlyRecording) {
+        buttonTriggeredRef.current = true;
+        // Play start sound first, wait for it to finish, then start recording
+        await playStartSound();
+      }
+      await ToggleRecording();
+    } catch (err) { console.error(err); }
+  }, [appState.state, playStartSound]);
 
   const handleCancelRecording = useCallback(async () => {
     try { await CancelRecording(); } catch (err) { console.error(err); }
