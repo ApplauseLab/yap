@@ -1,0 +1,117 @@
+.recording-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  z-index: 999999 !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.recording-modal {
+  background: rgba(30, 30, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 24px 28px;
+  min-width: 420px;
+  box-shadow: 
+    0 25px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.waveform-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 70px;
+  margin-bottom: 16px;
+}
+
+.waveform-canvas {
+  display: block;
+}
+
+.recording-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.recording-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-with-mic {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-with-mic svg {
+  border-radius: 6px;
+}
+
+.recording-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recording-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.recording-btn kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.stop-btn {
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
+.stop-btn:hover {
+  background: #3a3a3a;
+}
+
+.cancel-btn {
+  background: transparent;
+  color: #888;
+}
+
+.cancel-btn:hover {
+  color: #fff;
+}
+
+.cancel-btn kbd {
+  background: rgba(255, 255, 255, 0.1);
+}

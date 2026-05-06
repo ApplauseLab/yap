@@ -1,0 +1,373 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: false
+        default: 'dev'
+
+env:
+  GO_VERSION: '1.23'
+  NODE_VERSION: '20'
+  WAILS_VERSION: 'latest'
+
+jobs:
+  # Extract version from tag or input
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="v${VERSION}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+  # Build for macOS (Universal Binary)
+  build-macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install macOS dependencies
+        run: |
+          brew install portaudio create-dmg
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build macOS Universal App
+        run: |
+          wails build -platform darwin/universal -o "ApplauseWhisper"
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "ApplauseWhisper" \
+            --volicon "build/appicon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "ApplauseWhisper.app" 150 185 \
+            --hide-extension "ApplauseWhisper.app" \
+            --app-drop-link 450 185 \
+            "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg" \
+            "build/bin/ApplauseWhisper.app" || true
+          
+          # Fallback to hdiutil if create-dmg fails
+          if [ ! -f "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg" ]; then
+            hdiutil create -volname "ApplauseWhisper" -srcfolder "build/bin/ApplauseWhisper.app" -ov -format UDZO "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg"
+          fi
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg
+          retention-days: 5
+
+  # Build for Windows
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install portaudio via vcpkg
+        run: |
+          git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          C:\vcpkg\vcpkg install portaudio:x64-windows
+          echo "CGO_CFLAGS=-IC:/vcpkg/installed/x64-windows/include" >> $env:GITHUB_ENV
+          echo "CGO_LDFLAGS=-LC:/vcpkg/installed/x64-windows/lib -lportaudio" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build Windows App
+        run: |
+          wails build -platform windows/amd64 -nsis -o "ApplauseWhisper"
+        env:
+          CGO_ENABLED: 1
+
+      - name: Rename installer
+        run: |
+          Move-Item -Path "build\bin\ApplauseWhisper-amd64-installer.exe" -Destination "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe" -ErrorAction SilentlyContinue
+          if (-not (Test-Path "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe")) {
+            Get-ChildItem -Path "build\bin" -Filter "*installer*.exe" | ForEach-Object {
+              Move-Item -Path $_.FullName -Destination "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe"
+            }
+          }
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe
+          retention-days: 5
+
+      - name: Upload Windows Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: build/bin/ApplauseWhisper.exe
+          retention-days: 5
+
+  # Build for Linux
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            portaudio19-dev \
+            pkg-config \
+            libfuse2 \
+            fuse
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build Linux App
+        run: |
+          wails build -platform linux/amd64 -o "applause-whisper"
+
+      - name: Create AppImage
+        run: |
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy binary
+          cp build/bin/applause-whisper AppDir/usr/bin/
+          chmod +x AppDir/usr/bin/applause-whisper
+          
+          # Create desktop entry
+          cat > AppDir/usr/share/applications/applause-whisper.desktop << EOF
+          [Desktop Entry]
+          Name=Applause Whisper
+          Comment=Speech-to-Text Desktop App
+          Exec=applause-whisper
+          Icon=applause-whisper
+          Type=Application
+          Categories=Utility;Audio;
+          EOF
+          
+          # Copy icon
+          cp build/appicon.iconset/icon_256x256.png AppDir/usr/share/icons/hicolor/256x256/apps/applause-whisper.png
+          
+          # Create AppRun
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          exec "${HERE}/usr/bin/applause-whisper" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          
+          # Link desktop and icon to root
+          ln -sf usr/share/applications/applause-whisper.desktop AppDir/applause-whisper.desktop
+          ln -sf usr/share/icons/hicolor/256x256/apps/applause-whisper.png AppDir/applause-whisper.png
+          
+          # Build AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage"
+
+      - name: Create DEB package
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          PKG_NAME="applause-whisper_${VERSION}_amd64"
+          
+          # Create package structure
+          mkdir -p "${PKG_NAME}/DEBIAN"
+          mkdir -p "${PKG_NAME}/usr/bin"
+          mkdir -p "${PKG_NAME}/usr/share/applications"
+          mkdir -p "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps"
+          
+          # Copy binary
+          cp build/bin/applause-whisper "${PKG_NAME}/usr/bin/"
+          chmod +x "${PKG_NAME}/usr/bin/applause-whisper"
+          
+          # Copy icon
+          cp build/appicon.iconset/icon_256x256.png "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps/applause-whisper.png"
+          
+          # Create desktop entry
+          cat > "${PKG_NAME}/usr/share/applications/applause-whisper.desktop" << EOF
+          [Desktop Entry]
+          Name=Applause Whisper
+          Comment=Speech-to-Text Desktop App by applauselab.ai
+          Exec=/usr/bin/applause-whisper
+          Icon=applause-whisper
+          Type=Application
+          Categories=Utility;Audio;
+          EOF
+          
+          # Create control file
+          cat > "${PKG_NAME}/DEBIAN/control" << EOF
+          Package: applause-whisper
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libgtk-3-0, libwebkit2gtk-4.0-37, libportaudio2
+          Maintainer: Applause Lab <hello@applauselab.ai>
+          Description: Speech-to-Text Desktop App
+           Applause Whisper is a speech-to-text desktop application
+           powered by OpenAI Whisper API.
+          EOF
+          
+          # Build deb package
+          dpkg-deb --build "${PKG_NAME}"
+          mv "${PKG_NAME}.deb" "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb"
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage
+          retention-days: 5
+
+      - name: Upload Linux DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb
+          retention-days: 5
+
+  # Create GitHub Release and upload all artifacts
+  release:
+    needs: [prepare, build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f -name "*" | head -50
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ApplauseWhisper ${{ needs.prepare.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(needs.prepare.outputs.version, 'dev') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'alpha') }}
+          generate_release_notes: true
+          files: |
+            artifacts/macos-dmg/*.dmg
+            artifacts/windows-installer/*.exe
+            artifacts/windows-portable/*.exe
+            artifacts/linux-appimage/*.AppImage
+            artifacts/linux-deb/*.deb
+          body: |
+            ## ApplauseWhisper ${{ needs.prepare.outputs.version }}
+            
+            Speech-to-Text Desktop App by [ApplauseLab](https://applauselab.ai)
+            
+            ### Downloads
+            
+            | Platform | Download |
+            |----------|----------|
+            | macOS (Intel & Apple Silicon) | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg` |
+            | Windows Installer | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe` |
+            | Linux AppImage | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage` |
+            | Linux DEB | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb` |
+            
+            ### Installation
+            
+            **macOS:** Open the DMG, drag to Applications folder
+            **Windows:** Run the installer
+            **Linux (AppImage):** `chmod +x *.AppImage && ./ApplauseWhisper-*.AppImage`
+            **Linux (DEB):** `sudo dpkg -i ApplauseWhisper-*.deb`
