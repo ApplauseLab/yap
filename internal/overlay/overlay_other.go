@@ -19,6 +19,9 @@ func (o *Overlay) Hide() {}
 // SetStatus updates the status text (no-op on non-macOS)
 func (o *Overlay) SetStatus(status string) {}
 
+// SetAudioLevel updates the audio level for waveform visualization (no-op on non-macOS)
+func (o *Overlay) SetAudioLevel(level float32) {}
+
 // SetStopCallback sets the callback for when stop is clicked (no-op on non-macOS)
 func (o *Overlay) SetStopCallback(cb func()) {}
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
+import recordingSound from './assets/sounds/recording-start-sound-1.mp3';
 import {
   GetState,
   ToggleRecording,
@@ -19,6 +20,7 @@ import {
   GetAudioData,
   GetAudioInputDevices,
   SetAudioInputDevice,
+  GetStats,
   Quit,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogInfo } from '../wailsjs/runtime/runtime';
@@ -71,6 +73,15 @@ interface AudioInputDevice {
   isDefault: boolean;
 }
 
+interface UsageStats {
+  averageWPM: number;
+  wordsThisWeek: number;
+  recordingsThisWeek: number;
+  timeSavedThisWeek: number; // in minutes
+  totalRecordings: number;
+  totalWords: number;
+}
+
 type Page = 'home' | 'settings' | 'history';
 
 function App() {
@@ -96,6 +107,14 @@ function App() {
   const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
   const [audioDevices, setAudioDevices] = useState<AudioInputDevice[]>([]);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>('');
+  const [stats, setStats] = useState<UsageStats>({
+    averageWPM: 0,
+    wordsThisWeek: 0,
+    recordingsThisWeek: 0,
+    timeSavedThisWeek: 0,
+    totalRecordings: 0,
+    totalWords: 0,
+  });
 
   useEffect(() => {
     GetState().then((state: AppState) => setAppState(state));
@@ -107,6 +126,7 @@ function App() {
     });
     GetHistory().then((h: HistoryItem[]) => setHistory(h));
     GetAudioInputDevices().then((devices: AudioInputDevice[]) => setAudioDevices(devices));
+    GetStats().then((s: UsageStats) => setStats(s));
 
     LogInfo('Setting up EventsOn for stateChanged');
     const cleanup = EventsOn('stateChanged', (state: AppState) => {
@@ -119,6 +139,8 @@ function App() {
       if (h.length > 0 && !selectedHistory) {
         setSelectedHistory(h[0]);
       }
+      // Refresh stats when history changes (new transcription)
+      GetStats().then((s: UsageStats) => setStats(s));
     });
     EventsOn('downloadProgress', (progress: DownloadProgress) => setDownloadProgress(progress));
     EventsOn('downloadComplete', () => {
@@ -139,6 +161,28 @@ function App() {
       }, 100);
     }
     return () => { if (interval) clearInterval(interval); };
+  }, [appState.state]);
+
+  // Track previous state for sound effect
+  const prevStateRef = useRef<string>('ready');
+  
+  // Play sound effect when recording starts or stops
+  useEffect(() => {
+    const prevState = prevStateRef.current;
+    const currentState = appState.state;
+    
+    // Play sound when starting recording (transitioning to 'recording')
+    // or when stopping recording (transitioning from 'recording' to something else)
+    if (
+      (prevState !== 'recording' && currentState === 'recording') ||
+      (prevState === 'recording' && currentState !== 'recording')
+    ) {
+      const audio = new Audio(recordingSound);
+      audio.volume = 0.5;
+      audio.play().catch(err => console.error('Failed to play recording sound:', err));
+    }
+    
+    prevStateRef.current = currentState;
   }, [appState.state]);
 
   const handleToggleRecording = useCallback(async () => {
@@ -306,10 +350,6 @@ function App() {
             <kbd>Right ⌥</kbd>
             <span>to record</span>
           </div>
-          {/* Debug: show current state */}
-          <div style={{fontSize: '10px', color: '#666', marginTop: '8px'}}>
-            State: {appState.state}
-          </div>
         </div>
       </div>
 
@@ -324,103 +364,136 @@ function App() {
 
         {currentPage === 'home' && (
           <div className="home-page">
-            <div className="home-content">
-              {/* Status */}
-              <div className={`status-badge ${appState.state}`}>
-                {appState.state === 'recording' && <div className="pulse" />}
-                <span>{appState.state === 'ready' ? 'Ready' : 
-                       appState.state === 'recording' ? `Recording ${formatTime(appState.recordingTime)}` :
-                       appState.state === 'transcribing' ? 'Transcribing...' : 'Error'}</span>
+            {/* Stats Bar */}
+            <div className="stats-bar">
+              <div className="stat-item">
+                <span className="stat-value">{Math.round(stats.averageWPM)}</span>
+                <span className="stat-label">WPM</span>
+                <span className="stat-sublabel">Average speed</span>
               </div>
-
-              {/* Record Button */}
-              <button
-                className={`record-button ${appState.state}`}
-                onClick={handleToggleRecording}
-                disabled={appState.state === 'transcribing' || needsDownload}
-              >
-                <div className="record-button-inner">
-                  {appState.state === 'recording' ? (
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
-                      <rect x="6" y="6" width="12" height="12" rx="2"/>
-                    </svg>
-                  ) : appState.state === 'transcribing' ? (
-                    <div className="spinner" />
-                  ) : (
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                      <line x1="12" y1="19" x2="12" y2="23"/>
-                      <line x1="8" y1="23" x2="16" y2="23"/>
-                    </svg>
-                  )}
-                </div>
-              </button>
-
-              <p className="record-hint">
-                {appState.state === 'recording' ? 'Click to stop' : 'Click to start recording'}
-              </p>
-
-              {/* Download prompt */}
-              {needsDownload && !downloadProgress && (
-                <div className="download-prompt">
-                  <p>Model "{currentModel?.displayName}" needs to be downloaded</p>
-                  <button onClick={() => handleDownloadModel(appState.currentModel)}>
-                    Download ({currentModel?.size})
-                  </button>
-                </div>
-              )}
-
-              {downloadProgress && (
-                <div className="download-progress">
-                  <p>Downloading {downloadProgress.model}...</p>
-                  <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${downloadProgress.progress}%` }} />
-                  </div>
-                  <span>{downloadProgress.progress.toFixed(1)}%</span>
-                </div>
-              )}
-
-              {/* Last transcript */}
-              {appState.lastTranscript && appState.state === 'ready' && (
-                <div className="last-transcript">
-                  <div className="transcript-header">
-                    <span>Last transcription</span>
-                    <span className="copied">Copied to clipboard</span>
-                  </div>
-                  <p>{appState.lastTranscript}</p>
-                </div>
-              )}
-
-              {appState.error && appState.state === 'error' && (
-                <div className="error-message">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                  <span>{appState.error}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Info bar */}
-            <div className="info-bar">
-              <div className="info-item">
-                <span className="label">Provider</span>
-                <span className="value">{appState.currentProvider === 'openai' ? 'OpenAI' : 'Local'}</span>
+              <div className="stat-item">
+                <span className="stat-value">{stats.wordsThisWeek}</span>
+                <span className="stat-label">Words</span>
+                <span className="stat-sublabel">This week</span>
               </div>
-              <div className="info-item">
-                <span className="label">Model</span>
-                <span className="value">{appState.currentModel}</span>
+              <div className="stat-item">
+                <span className="stat-value">{stats.recordingsThisWeek}</span>
+                <span className="stat-label">Recordings</span>
+                <span className="stat-sublabel">This week</span>
               </div>
-              <div className="info-item">
-                <span className="label">Hotkey</span>
-                <span className={`value ${appState.hotkeyEnabled ? 'active' : ''}`}>
-                  {appState.hotkeyEnabled ? 'Active' : 'Inactive'}
-                </span>
+              <div className="stat-item">
+                <span className="stat-value">{Math.round(stats.timeSavedThisWeek)}</span>
+                <span className="stat-label">Minutes</span>
+                <span className="stat-sublabel">Saved this week</span>
               </div>
             </div>
+
+            {/* Download prompt if needed */}
+            {needsDownload && !downloadProgress && (
+              <div className="download-prompt home-download">
+                <p>Model "{currentModel?.displayName}" needs to be downloaded</p>
+                <button onClick={() => handleDownloadModel(appState.currentModel)}>
+                  Download ({currentModel?.size})
+                </button>
+              </div>
+            )}
+
+            {downloadProgress && (
+              <div className="download-progress">
+                <p>Downloading {downloadProgress.model}...</p>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${downloadProgress.progress}%` }} />
+                </div>
+                <span>{downloadProgress.progress.toFixed(1)}%</span>
+              </div>
+            )}
+
+            {/* Get Started Section */}
+            <div className="get-started-section">
+              <h3 className="section-title">Get started</h3>
+              <div className="action-list">
+                <div className="action-item" onClick={handleToggleRecording}>
+                  <div className="action-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polygon points="10 8 16 12 10 16 10 8"/>
+                    </svg>
+                  </div>
+                  <div className="action-content">
+                    <span className="action-title">Start recording</span>
+                    <span className="action-desc">Turn your voice to text with a single click</span>
+                  </div>
+                  <kbd className="action-shortcut">Right ⌥</kbd>
+                </div>
+
+                <div className="action-item" onClick={() => setCurrentPage('settings')}>
+                  <div className="action-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3"/>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                  </div>
+                  <div className="action-content">
+                    <span className="action-title">Settings</span>
+                    <span className="action-desc">Configure model, audio device, and more</span>
+                  </div>
+                </div>
+
+                <div className="action-item" onClick={() => setCurrentPage('history')}>
+                  <div className="action-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                  </div>
+                  <div className="action-content">
+                    <span className="action-title">View history</span>
+                    <span className="action-desc">Browse and replay past transcriptions</span>
+                  </div>
+                  {history.length > 0 && <span className="action-badge">{history.length}</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* What's New Section */}
+            <div className="whats-new-section">
+              <h3 className="section-title">What's new</h3>
+              <div className="changelog-list">
+                <div className="changelog-item">
+                  <span className="changelog-date">May 2026</span>
+                  <div className="changelog-content">
+                    <span className="changelog-title">Native overlay with waveform</span>
+                    <span className="changelog-desc">Recording overlay now shows above all apps with animated waveform visualization.</span>
+                  </div>
+                </div>
+                <div className="changelog-item">
+                  <span className="changelog-date">May 2026</span>
+                  <div className="changelog-content">
+                    <span className="changelog-title">Auto-paste transcriptions</span>
+                    <span className="changelog-desc">Transcribed text is automatically pasted into your active text field.</span>
+                  </div>
+                </div>
+                <div className="changelog-item">
+                  <span className="changelog-date">May 2026</span>
+                  <div className="changelog-content">
+                    <span className="changelog-title">Usage statistics</span>
+                    <span className="changelog-desc">Track your words per minute, time saved, and weekly usage.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Error display */}
+            {appState.error && appState.state === 'error' && (
+              <div className="error-message">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <span>{appState.error}</span>
+              </div>
+            )}
           </div>
         )}
 

@@ -17,15 +17,16 @@ static NSTextField *gStatusLabel = nil;
 static NSButton *gStopButton = nil;
 static NSButton *gCancelButton = nil;
 static float gWaveformPhase = 0.0;
+static float gCurrentAudioLevel = 0.0;
+static float gLevelHistory[50];
+static int gLevelHistoryIndex = 0;
 static id gButtonMonitor = nil;
-static id gKeyMonitor = nil;
-static id gLocalKeyMonitor = nil;
 
 // Callbacks
 extern void goOverlayStopClicked(void);
 extern void goOverlayCancelClicked(void);
 
-// Draw waveform to an NSImage
+// Draw waveform to an NSImage using real audio levels
 static NSImage* drawWaveformImage(float phase, CGFloat width, CGFloat height) {
     NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
     [image lockFocus];
@@ -44,18 +45,20 @@ static NSImage* drawWaveformImage(float phase, CGFloat width, CGFloat height) {
     CGFloat gap = 3.0;
     CGFloat totalBarWidth = barWidth + gap;
     int numBars = (int)(width / totalBarWidth);
+    int historySize = 50;
     
     for (int i = 0; i < numBars; i++) {
         CGFloat x = i * totalBarWidth;
         
-        // Create animated height using sine waves
-        CGFloat normalizedX = (CGFloat)i / (CGFloat)numBars;
-        CGFloat wave1 = sin(normalizedX * M_PI * 4 + phase) * 0.3;
-        CGFloat wave2 = sin(normalizedX * M_PI * 2 + phase * 1.5) * 0.2;
-        CGFloat wave3 = sin(normalizedX * M_PI * 6 + phase * 0.7) * 0.15;
+        // Map bar index to level history
+        int historyIndex = (gLevelHistoryIndex - numBars + i + historySize) % historySize;
+        float level = gLevelHistory[historyIndex];
         
-        CGFloat amplitude = 0.3 + wave1 + wave2 + wave3;
-        if (amplitude < 0.15) amplitude = 0.15;
+        // Add slight animation for visual interest
+        CGFloat wave = sin((CGFloat)i * 0.3 + phase) * 0.05;
+        CGFloat amplitude = level + wave + 0.1; // Minimum bar height
+        
+        if (amplitude < 0.1) amplitude = 0.1;
         if (amplitude > 1.0) amplitude = 1.0;
         
         CGFloat barHeight = amplitude * (height - 8);
@@ -69,6 +72,14 @@ static NSImage* drawWaveformImage(float phase, CGFloat width, CGFloat height) {
     
     [image unlockFocus];
     return image;
+}
+
+// Update audio level (called from background thread, must be thread-safe)
+static void updateAudioLevel(float level) {
+    // Simple atomic-style update (these are just floats, safe to write)
+    gCurrentAudioLevel = level;
+    gLevelHistory[gLevelHistoryIndex] = level;
+    gLevelHistoryIndex = (gLevelHistoryIndex + 1) % 50;
 }
 
 // Create the overlay panel
@@ -189,6 +200,12 @@ static void showOverlay(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         createOverlayPanel();
         
+        // Initialize level history
+        for (int i = 0; i < 50; i++) {
+            gLevelHistory[i] = 0.1;
+        }
+        gLevelHistoryIndex = 0;
+        
         // Initial waveform
         NSImage *img = drawWaveformImage(0, 340, 35);
         [gWaveformImageView setImage:img];
@@ -202,59 +219,43 @@ static void showOverlay(void) {
             }];
         }
         
-        // Set up local event monitor for button clicks
+        // Set up global event monitor for button clicks (works even when other apps have focus)
         if (gButtonMonitor == nil) {
-            gButtonMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseUp
-                                                                   handler:^NSEvent *(NSEvent *event) {
+            gButtonMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseUp
+                                                                   handler:^(NSEvent *event) {
                 if (gOverlayPanel != nil) {
-                    NSPoint windowPoint = [event locationInWindow];
+                    NSPoint screenPoint = [NSEvent mouseLocation];
+                    NSRect panelFrame = [gOverlayPanel frame];
                     
-                    // Check Stop button
-                    if (gStopButton != nil) {
-                        NSPoint stopPoint = [gStopButton convertPoint:windowPoint fromView:nil];
-                        if (NSPointInRect(stopPoint, [gStopButton bounds])) {
-                            goOverlayStopClicked();
-                            return event;
+                    if (NSPointInRect(screenPoint, panelFrame)) {
+                        // Convert to panel coordinates
+                        NSPoint panelPoint = NSMakePoint(screenPoint.x - panelFrame.origin.x,
+                                                         screenPoint.y - panelFrame.origin.y);
+                        
+                        // Check Stop button
+                        if (gStopButton != nil) {
+                            NSRect stopFrame = [gStopButton frame];
+                            if (NSPointInRect(panelPoint, stopFrame)) {
+                                goOverlayStopClicked();
+                                return;
+                            }
+                        }
+                        
+                        // Check Cancel button
+                        if (gCancelButton != nil) {
+                            NSRect cancelFrame = [gCancelButton frame];
+                            if (NSPointInRect(panelPoint, cancelFrame)) {
+                                goOverlayCancelClicked();
+                                return;
+                            }
                         }
                     }
-                    
-                    // Check Cancel button
-                    if (gCancelButton != nil) {
-                        NSPoint cancelPoint = [gCancelButton convertPoint:windowPoint fromView:nil];
-                        if (NSPointInRect(cancelPoint, [gCancelButton bounds])) {
-                            goOverlayCancelClicked();
-                            return event;
-                        }
-                    }
-                }
-                return event;
-            }];
-        }
-        
-        // Set up global keyboard monitor for Escape key (when other apps have focus)
-        if (gKeyMonitor == nil) {
-            gKeyMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown
-                                                                 handler:^(NSEvent *event) {
-                if ([event keyCode] == 53) { // 53 = Escape key
-                    goOverlayCancelClicked();
                 }
             }];
         }
         
-        // Set up local keyboard monitor for Escape key (when this app has focus)
-        if (gLocalKeyMonitor == nil) {
-            gLocalKeyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
-                                                                     handler:^NSEvent *(NSEvent *event) {
-                if ([event keyCode] == 53) { // 53 = Escape key
-                    goOverlayCancelClicked();
-                    return nil; // Consume the event
-                }
-                return event;
-            }];
-        }
-        
+        // Show panel without taking focus from other apps
         [gOverlayPanel orderFrontRegardless];
-        [gOverlayPanel makeKeyWindow]; // Make panel key window to receive keyboard events
         [gStatusLabel setStringValue:@"Recording..."];
     });
 }
@@ -270,16 +271,6 @@ static void hideOverlay(void) {
         if (gButtonMonitor != nil) {
             [NSEvent removeMonitor:gButtonMonitor];
             gButtonMonitor = nil;
-        }
-        
-        if (gKeyMonitor != nil) {
-            [NSEvent removeMonitor:gKeyMonitor];
-            gKeyMonitor = nil;
-        }
-        
-        if (gLocalKeyMonitor != nil) {
-            [NSEvent removeMonitor:gLocalKeyMonitor];
-            gLocalKeyMonitor = nil;
         }
         
         if (gOverlayPanel != nil) {
@@ -309,16 +300,6 @@ static void destroyOverlay(void) {
         if (gButtonMonitor != nil) {
             [NSEvent removeMonitor:gButtonMonitor];
             gButtonMonitor = nil;
-        }
-        
-        if (gKeyMonitor != nil) {
-            [NSEvent removeMonitor:gKeyMonitor];
-            gKeyMonitor = nil;
-        }
-        
-        if (gLocalKeyMonitor != nil) {
-            [NSEvent removeMonitor:gLocalKeyMonitor];
-            gLocalKeyMonitor = nil;
         }
         
         if (gOverlayPanel != nil) {
@@ -398,6 +379,11 @@ func (o *Overlay) SetStatus(status string) {
 	cStatus := C.CString(status)
 	defer C.free(unsafe.Pointer(cStatus))
 	C.updateOverlayStatus(cStatus)
+}
+
+// SetAudioLevel updates the audio level for waveform visualization (0.0-1.0)
+func (o *Overlay) SetAudioLevel(level float32) {
+	C.updateAudioLevel(C.float(level))
 }
 
 // SetStopCallback sets the callback for when stop is clicked

@@ -27,6 +27,8 @@ export function GetModels():Promise<Array<main.ModelInfo>>;
 
 export function GetState():Promise<main.AppState>;
 
+export function GetStats():Promise<main.UsageStats>;
+
 export function Hide():Promise<void>;
 
 export function IsModelDownloaded(arg1:string):Promise<boolean>;

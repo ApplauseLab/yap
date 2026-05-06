@@ -61,6 +61,16 @@ type ModelInfo struct {
 	EnglishOnly bool   `json:"englishOnly"`
 }
 
+// UsageStats for frontend
+type UsageStats struct {
+	AverageWPM         float64 `json:"averageWPM"`
+	WordsThisWeek      int     `json:"wordsThisWeek"`
+	RecordingsThisWeek int     `json:"recordingsThisWeek"`
+	TimeSavedThisWeek  float64 `json:"timeSavedThisWeek"` // in minutes
+	TotalRecordings    int     `json:"totalRecordings"`
+	TotalWords         int     `json:"totalWords"`
+}
+
 // App struct
 type App struct {
 	ctx           context.Context
@@ -69,6 +79,7 @@ type App struct {
 	openaiEngine  *transcribe.OpenAIEngine
 	configManager *models.ConfigManager
 	modelManager  *models.Manager
+	statsManager  *models.StatsManager
 	hotkeyManager *hotkey.Manager
 	overlay       *overlay.Overlay
 
@@ -87,7 +98,7 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	app := &App{
-		recorder:      audio.NewRecorder(),
+		recorder:      nil, // Created fresh for each recording
 		hotkeyManager: hotkey.NewManager(),
 		overlay:       overlay.New(),
 		state:         StateReady,
@@ -124,10 +135,17 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.configManager = configManager
 
-	// Apply saved audio input device preference
+	// Initialize stats manager
+	statsManager, err := models.NewStatsManager(configManager.GetConfigDir())
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize stats manager: %v\n", err)
+	} else {
+		a.statsManager = statsManager
+	}
+
+	// Audio device preference is applied in StartRecording when recorder is created
 	if deviceName := configManager.Get().AudioInputDevice; deviceName != "" {
-		a.recorder.SetDevice(deviceName)
-		fmt.Printf("Using audio input device: %s\n", deviceName)
+		fmt.Printf("Will use audio input device: %s\n", deviceName)
 	}
 
 	// Initialize model manager
@@ -375,6 +393,17 @@ func (a *App) StartRecording() error {
 
 	a.emitState()
 
+	// Create fresh recorder for each recording session
+	a.recorder = audio.NewRecorder()
+	
+	// Set audio device from config if available
+	if a.configManager != nil {
+		config := a.configManager.Get()
+		if config.AudioInputDevice != "" {
+			a.recorder.SetDevice(config.AudioInputDevice)
+		}
+	}
+
 	if err := a.recorder.Start(); err != nil {
 		a.mu.Lock()
 		a.state = StateError
@@ -409,8 +438,9 @@ func (a *App) StopRecording() error {
 	a.state = StateTranscribing
 	a.mu.Unlock()
 
-	// Disable escape cancel
+	// Disable escape cancel and audio level callback
 	a.hotkeyManager.DisableEscapeCancel()
+	a.recorder.SetLevelCallback(nil)
 
 	// Update overlay to show transcribing status
 	a.overlay.SetStatus("Transcribing...")
@@ -444,8 +474,9 @@ func (a *App) CancelRecording() error {
 	onTrayUpdate := a.onTrayUpdate
 	a.mu.Unlock()
 
-	// Disable escape cancel
+	// Disable escape cancel and audio level callback
 	a.hotkeyManager.DisableEscapeCancel()
+	a.recorder.SetLevelCallback(nil)
 
 	// Stop the recorder (discard samples)
 	a.recorder.Stop()
@@ -541,6 +572,11 @@ func (a *App) transcribe(samples []float32, duration float64) {
 
 		// Save history to disk
 		go a.saveHistory()
+
+		// Record stats
+		if a.statsManager != nil {
+			a.statsManager.RecordTranscription(text, duration)
+		}
 
 		// Copy to clipboard and optionally paste
 		if config.AutoPaste {
@@ -661,16 +697,33 @@ func (a *App) GetAudioInputDevices() ([]AudioInputDevice, error) {
 
 // SetAudioInputDevice sets the audio input device
 func (a *App) SetAudioInputDevice(deviceName string) error {
-	// Update the recorder
-	a.recorder.SetDevice(deviceName)
-
-	// Save to config
+	// Save to config - will be applied when recorder is created in StartRecording
 	return a.configManager.SetAudioInputDevice(deviceName)
 }
 
 // GetCurrentAudioInputDevice returns the currently selected audio input device name
 func (a *App) GetCurrentAudioInputDevice() string {
-	return a.recorder.GetDevice()
+	if a.configManager != nil {
+		return a.configManager.Get().AudioInputDevice
+	}
+	return ""
+}
+
+// GetStats returns usage statistics
+func (a *App) GetStats() UsageStats {
+	if a.statsManager == nil {
+		return UsageStats{}
+	}
+	
+	stats := a.statsManager.Get()
+	return UsageStats{
+		AverageWPM:         a.statsManager.GetAverageWPM(),
+		WordsThisWeek:      stats.WeeklyWords,
+		RecordingsThisWeek: stats.WeeklyRecordings,
+		TimeSavedThisWeek:  stats.WeeklyTimeSaved / 60.0, // Convert to minutes
+		TotalRecordings:    stats.TotalRecordings,
+		TotalWords:         stats.TotalWords,
+	}
 }
 
 // DownloadModel downloads a model

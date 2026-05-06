@@ -50,6 +50,10 @@ export function GetState() {
   return window['go']['main']['App']['GetState']();
 }
 
+export function GetStats() {
+  return window['go']['main']['App']['GetStats']();
+}
+
 export function Hide() {
   return window['go']['main']['App']['Hide']();
 }

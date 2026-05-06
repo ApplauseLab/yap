@@ -82,6 +82,28 @@ export namespace main {
 	        this.englishOnly = source["englishOnly"];
 	    }
 	}
+	export class UsageStats {
+	    averageWPM: number;
+	    wordsThisWeek: number;
+	    recordingsThisWeek: number;
+	    timeSavedThisWeek: number;
+	    totalRecordings: number;
+	    totalWords: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.averageWPM = source["averageWPM"];
+	        this.wordsThisWeek = source["wordsThisWeek"];
+	        this.recordingsThisWeek = source["recordingsThisWeek"];
+	        this.timeSavedThisWeek = source["timeSavedThisWeek"];
+	        this.totalRecordings = source["totalRecordings"];
+	        this.totalWords = source["totalWords"];
+	    }
+	}
 
 }
 
