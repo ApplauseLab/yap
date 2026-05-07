@@ -1,102 +1,144 @@
-# Applause Whisper
+<p align="center">
+  <img src="build/appicon.png" width="128" height="128" alt="Applause Whisper">
+</p>
 
-A speech-to-text desktop app for macOS that lets you dictate text and automatically paste it into any application.
+<h1 align="center">Applause Whisper</h1>
+
+<p align="center">
+  Dictate anywhere. Free and local-first.
+  <br>
+  Speech-to-text powered by <a href="https://github.com/ggerganov/whisper.cpp">whisper.cpp</a> or <a href="https://openai.com/research/whisper">OpenAI Whisper</a>.
+</p>
+
+<p align="center">
+  <a href="#about">About</a> ·
+  <a href="#download">Download</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#development">Development</a>
+</p>
+
+---
+
+## About
+
+Applause Whisper is a desktop application that transcribes your speech and automatically pastes the text into any application. Press a hotkey, speak, and your words appear wherever your cursor is.
+
+Choose between **local transcription** using [whisper.cpp](https://github.com/ggerganov/whisper.cpp) for complete privacy and offline use, or **cloud transcription** via OpenAI's Whisper API for maximum accuracy.
+
+Built with [Wails](https://wails.io/) (Go + React).
+
+## Download
+
+| Platform | Download |
+|----------|----------|
+| **macOS** (Intel & Apple Silicon) | [DMG Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
+| **Windows** | [Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) · [Portable](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
+| **Linux** | [AppImage](https://github.com/ApplauseLab/applause-whisper/releases/latest) · [DEB](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
+
+See all versions on the [Releases page](https://github.com/ApplauseLab/applause-whisper/releases).
 
 ## Features
 
-- **Local Transcription**: Uses whisper.cpp for offline, private speech-to-text
-- **OpenAI API**: Optional cloud-based transcription using OpenAI's Whisper API
-- **Multiple Models**: Choose from tiny, base, small, medium, or large models
-- **Auto-Paste**: Automatically pastes transcribed text into the active application
-- **Floating Window**: Always-on-top window for easy access
-- **Model Management**: Download models on-demand
+- **Global Hotkey** — Start recording with a single keypress (Option key on macOS)
+- **Local Transcription** — Offline, private speech-to-text using whisper.cpp
+- **Cloud Transcription** — OpenAI Whisper API for higher accuracy (optional)
+- **Auto-Paste** — Transcribed text is automatically pasted into the active application
+- **Multiple Models** — Choose from tiny, base, small, medium, or large models
+- **Transcription History** — Review, replay, and copy past transcriptions
+- **System Tray** — Quick access from the menu bar
+- **Audio Device Selection** — Choose your preferred microphone
 
-## Requirements
+### Whisper Models
 
-- macOS 11.0 or later
-- [PortAudio](https://www.portaudio.com/) (installed via Homebrew)
-- For local transcription: whisper.cpp CLI (optional, or use OpenAI API)
+| Model | Size | Speed | Accuracy |
+|-------|------|-------|----------|
+| tiny | ~75 MB | Fastest | Basic |
+| base | ~150 MB | Fast | Good |
+| small | ~500 MB | Medium | Better |
+| medium | ~1.5 GB | Slow | High |
+| large-v3 | ~3 GB | Slowest | Highest |
+
+English-only models (e.g., `base.en`) are faster and more accurate for English.
 
 ## Installation
 
-### Install Dependencies
+### Download Release
 
-```bash
-# Install PortAudio
-brew install portaudio
-
-# Optional: Install whisper.cpp for local transcription
-brew install whisper-cpp
-# Or build from source: https://github.com/ggerganov/whisper.cpp
-```
+1. Download the installer for your platform from the [Releases page](https://github.com/ApplauseLab/applause-whisper/releases/latest)
+2. **macOS**: Open the DMG and drag to Applications
+3. **Windows**: Run the installer
+4. **Linux**: `chmod +x *.AppImage && ./ApplauseWhisper-*.AppImage` or `sudo dpkg -i *.deb`
 
 ### Build from Source
 
+#### Prerequisites
+
+- [Go](https://golang.org/) 1.21+
+- [Node.js](https://nodejs.org/) 18+
+- [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+- [PortAudio](https://www.portaudio.com/)
+
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd applause-whisper
+# macOS
+brew install portaudio
 
-# Install Wails CLI if not already installed
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+# Ubuntu/Debian
+sudo apt-get install portaudio19-dev
 
-# Build the app
-wails build
-
-# Run the app
-open build/bin/applause-whisper.app
+# For local transcription (optional)
+brew install whisper-cpp  # macOS
+# Or build from source: https://github.com/ggerganov/whisper.cpp
 ```
 
-### Development
+#### Build
 
 ```bash
+git clone https://github.com/ApplauseLab/applause-whisper.git
+cd applause-whisper
+
+# Install Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# Build
+wails build
+
+# Run
+open build/bin/ApplauseWhisper.app  # macOS
+```
+
+## Development
+
+```bash
+# Install dependencies
+cd frontend && npm install && cd ..
+
 # Run in development mode with hot reload
 wails dev
 ```
 
-## Usage
+### Permissions (macOS)
 
-1. **Start Recording**: Click the record button or use the hotkey (coming soon: Cmd+Shift+Space)
-2. **Speak**: Say what you want to transcribe
-3. **Stop Recording**: Click the button again to stop
-4. **Auto-Paste**: The transcribed text is automatically copied to clipboard and pasted
+The app requires the following permissions:
 
-### Settings
+- **Microphone** — For audio recording
+- **Accessibility** — For global hotkey and auto-paste functionality
 
-Click the gear icon to access settings:
+## Contributing
 
-- **Provider**: Choose between Local (whisper.cpp) or OpenAI
-- **Model**: Select the Whisper model size (affects accuracy vs speed)
-- **OpenAI API Key**: Enter your key if using the OpenAI provider
-- **Auto-Paste**: Toggle automatic pasting
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-### Models
+### Commit Convention
 
-| Model | Size | Speed | Accuracy |
-|-------|------|-------|----------|
-| tiny | ~75MB | Fastest | Basic |
-| base | ~150MB | Fast | Good |
-| small | ~500MB | Medium | Better |
-| medium | ~1.5GB | Slow | High |
-| large-v3 | ~3GB | Slowest | Highest |
-
-English-only models (e.g., `base.en`) are slightly faster and more accurate for English.
-
-## Architecture
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). Commit messages are validated using commitlint.
 
 ```
-applause-whisper/
-├── main.go                 # Wails app entry point
-├── app.go                  # Main app logic
-├── internal/
-│   ├── audio/             # PortAudio recording
-│   ├── transcribe/        # Transcription engines
-│   ├── system/            # Clipboard & paste
-│   ├── hotkey/            # Global hotkey (placeholder)
-│   └── models/            # Model & config management
-└── frontend/              # React UI
+feat: add new feature
+fix: resolve bug
+docs: update documentation
+chore: maintenance task
 ```
 
 ## License
 
-MIT License
+[MIT License](LICENSE) — Copyright (c) 2024 [Applause Lab](https://applauselab.ai)
