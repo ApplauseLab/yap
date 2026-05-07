@@ -38,7 +38,8 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
-  # Build for macOS (Universal Binary)
+  # Build for macOS (Apple Silicon)
+  # Note: Intel Macs can run via Rosetta 2
   build-macos:
     needs: prepare
     runs-on: macos-latest
@@ -70,9 +71,9 @@ jobs:
         run: npm install
         working-directory: frontend
 
-      - name: Build macOS Universal App
+      - name: Build macOS App
         run: |
-          wails build -platform darwin/universal -o "ApplauseWhisper"
+          wails build -platform darwin/arm64 -o "ApplauseWhisper"
 
       - name: Create DMG
         run: |
@@ -85,19 +86,19 @@ jobs:
             --icon "ApplauseWhisper.app" 150 185 \
             --hide-extension "ApplauseWhisper.app" \
             --app-drop-link 450 185 \
-            "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg" \
+            "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg" \
             "build/bin/ApplauseWhisper.app" || true
           
           # Fallback to hdiutil if create-dmg fails
-          if [ ! -f "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg" ]; then
-            hdiutil create -volname "ApplauseWhisper" -srcfolder "build/bin/ApplauseWhisper.app" -ov -format UDZO "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg"
+          if [ ! -f "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg" ]; then
+            hdiutil create -volname "ApplauseWhisper" -srcfolder "build/bin/ApplauseWhisper.app" -ov -format UDZO "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg"
           fi
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg
+          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg
           retention-days: 5
 
   # Build for Windows
@@ -173,7 +174,7 @@ jobs:
   # Build for Linux
   build-linux:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -360,7 +361,7 @@ jobs:
             
             | Platform | Download |
             |----------|----------|
-            | macOS (Intel & Apple Silicon) | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS-universal.dmg` |
+            | macOS (Apple Silicon, Intel via Rosetta) | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg` |
             | Windows Installer | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe` |
             | Linux AppImage | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage` |
             | Linux DEB | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb` |

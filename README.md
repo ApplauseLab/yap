@@ -32,7 +32,7 @@ Built with [Wails](https://wails.io/) (Go + React).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Intel & Apple Silicon) | [DMG Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
+| **macOS** (Apple Silicon, Intel via Rosetta) | [DMG Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
 | **Windows** | [Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) · [Portable](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
 | **Linux** | [AppImage](https://github.com/ApplauseLab/applause-whisper/releases/latest) · [DEB](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
 
