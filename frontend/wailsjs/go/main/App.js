@@ -114,6 +114,10 @@ export function SetTray(arg1) {
   return window['go']['main']['App']['SetTray'](arg1);
 }
 
+export function ShowInFolder(arg1) {
+  return window['go']['main']['App']['ShowInFolder'](arg1);
+}
+
 export function ShowWindow() {
   return window['go']['main']['App']['ShowWindow']();
 }

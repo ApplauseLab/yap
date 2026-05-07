@@ -59,6 +59,8 @@ export function SetSoundEnabled(arg1:boolean):Promise<void>;
 
 export function SetTray(arg1:any):Promise<void>;
 
+export function ShowInFolder(arg1:string):Promise<void>;
+
 export function ShowWindow():Promise<void>;
 
 export function StartRecording():Promise<void>;

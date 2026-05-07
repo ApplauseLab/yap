@@ -114,9 +114,10 @@ static void createOverlayPanel(void) {
                                           NSWindowCollectionBehaviorStationary |
                                           NSWindowCollectionBehaviorIgnoresCycle];
     
-    // Allow panel to receive key events
-    [gOverlayPanel setBecomesKeyOnlyIfNeeded:NO];
+    // Prevent panel from receiving key events - let them pass through to other apps
+    [gOverlayPanel setBecomesKeyOnlyIfNeeded:YES];
     [gOverlayPanel setFloatingPanel:YES];
+    [gOverlayPanel setIgnoresMouseEvents:NO];  // Still accept mouse for buttons
     
     // Create content view with rounded corners
     NSView *contentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, panelWidth, panelHeight)];

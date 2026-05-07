@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"applause-whisper/internal/hotkey"
 	"applause-whisper/internal/models"
 	"applause-whisper/internal/overlay"
+	"applause-whisper/internal/sounds"
 	"applause-whisper/internal/system"
 	"applause-whisper/internal/transcribe"
 
@@ -127,6 +129,13 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Printf("Warning: Failed to initialize audio: %v\n", err)
 	}
 
+	// Initialize native sounds
+	if err := sounds.Init(); err != nil {
+		fmt.Printf("Warning: Failed to initialize sounds: %v\n", err)
+	} else {
+		fmt.Println("Native sounds initialized successfully")
+	}
+
 	// Initialize config manager
 	configManager, err := models.NewConfigManager()
 	if err != nil {
@@ -162,6 +171,15 @@ func (a *App) startup(ctx context.Context) {
 
 	a.openaiEngine = transcribe.NewOpenAIEngine(configManager.Get().OpenAIAPIKey)
 
+	// Request accessibility permissions (needed for escape key and auto-paste)
+	if !hotkey.RequestAccessibilityPermissions() {
+		fmt.Println("WARNING: Accessibility permissions not granted!")
+		fmt.Println("Escape key cancel and auto-paste features will not work.")
+		fmt.Println("Please grant permissions in System Preferences > Privacy & Security > Accessibility")
+	} else {
+		fmt.Println("Accessibility permissions granted")
+	}
+
 	// Register global hotkey
 	if err := a.hotkeyManager.Register(func() {
 		a.ToggleRecording()
@@ -191,6 +209,7 @@ func (a *App) shutdown(ctx context.Context) {
 		a.overlay.Destroy()
 	}
 	audio.Terminate()
+	sounds.Cleanup()
 }
 
 // GetState returns the current app state
@@ -340,6 +359,32 @@ func (a *App) DeleteHistoryItem(id string) error {
 	return nil
 }
 
+// ShowInFolder opens the system file manager with the audio file selected
+func (a *App) ShowInFolder(id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for _, item := range a.history {
+		if item.ID == id {
+			if !item.HasAudio || item.AudioPath == "" {
+				return fmt.Errorf("no audio available for this item")
+			}
+
+			// Check if file exists
+			if _, err := os.Stat(item.AudioPath); os.IsNotExist(err) {
+				return fmt.Errorf("audio file not found")
+			}
+
+			// macOS: use open -R to reveal in Finder
+			// Windows: use explorer /select,
+			// Linux: use xdg-open on the parent folder
+			cmd := exec.Command("open", "-R", item.AudioPath)
+			return cmd.Run()
+		}
+	}
+	return fmt.Errorf("history item not found")
+}
+
 // GetAudioData returns the audio data for a history item as base64
 func (a *App) GetAudioData(id string) (string, error) {
 	a.mu.Lock()
@@ -378,17 +423,34 @@ func (a *App) ToggleRecording() error {
 // StartRecording begins audio capture
 func (a *App) StartRecording() error {
 	runtime.LogInfo(a.ctx, "StartRecording called")
+	fmt.Println("StartRecording: entering function")
+	
+	// Save the current frontmost app before we do anything (for auto-paste later)
+	system.SaveFrontmostApp()
+	
 	a.mu.Lock()
 	if a.state != StateReady {
 		a.mu.Unlock()
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Cannot start recording in state: %s", a.state))
 		return fmt.Errorf("cannot start recording in state: %s", a.state)
 	}
+	
+	// Check if sound is enabled
+	soundEnabled := a.configManager != nil && (a.configManager.Get().SoundEnabled == nil || *a.configManager.Get().SoundEnabled)
+	fmt.Printf("StartRecording: soundEnabled=%v\n", soundEnabled)
+	
+	// Set state to recording first
 	a.state = StateRecording
 	a.lastError = ""
 	a.recordStartTime = time.Now()
 	onTrayUpdate := a.onTrayUpdate
 	a.mu.Unlock()
+	
+	// Play start sound (non-blocking) - afplay goes to speakers, not mic input
+	if soundEnabled {
+		fmt.Println("StartRecording: playing start sound")
+		sounds.PlayStart()
+	}
 
 	runtime.LogInfo(a.ctx, "State changed to recording, emitting state")
 
@@ -426,7 +488,9 @@ func (a *App) StartRecording() error {
 	a.overlay.Show()
 
 	// Enable escape key to cancel recording (native/global)
+	fmt.Println("DEBUG: Enabling escape cancel")
 	a.hotkeyManager.EnableEscapeCancel(func() {
+		fmt.Println("DEBUG: Escape callback triggered!")
 		a.CancelRecording()
 	})
 
@@ -558,7 +622,7 @@ func (a *App) transcribe(samples []float32, duration float64) {
 		historyItem := HistoryItem{
 			ID:        recordingID,
 			Text:      text,
-			Timestamp: time.Now().Format("2 Jan 3:04 pm"),
+			Timestamp: time.Now().Format("2 Jan 2006, 3:04 pm"),
 			Duration:  duration,
 			AudioPath: audioPath,
 			HasAudio:  hasAudio,
@@ -585,15 +649,21 @@ func (a *App) transcribe(samples []float32, duration float64) {
 		}
 
 		// Copy to clipboard and optionally paste
+		fmt.Printf("DEBUG: AutoPaste=%v, text length=%d\n", config.AutoPaste, len(text))
 		if config.AutoPaste {
 			go func(textToPaste string) {
 				// Wait for the overlay to hide and the previous app to regain focus
+				fmt.Println("DEBUG: Waiting 500ms before paste...")
 				time.Sleep(500 * time.Millisecond)
+				fmt.Println("DEBUG: Calling CopyAndPaste now")
 				if err := system.CopyAndPaste(textToPaste); err != nil {
 					fmt.Printf("Failed to paste: %v\n", err)
+				} else {
+					fmt.Println("DEBUG: CopyAndPaste succeeded")
 				}
 			}(text)
 		} else {
+			fmt.Println("DEBUG: AutoPaste disabled, only copying to clipboard")
 			go system.CopyToClipboard(text)
 		}
 	}
@@ -606,6 +676,12 @@ func (a *App) transcribe(samples []float32, duration float64) {
 
 	// Hide overlay
 	a.overlay.Hide()
+
+	// Play stop sound (after recording/transcription complete)
+	soundEnabled := a.configManager != nil && (a.configManager.Get().SoundEnabled == nil || *a.configManager.Get().SoundEnabled)
+	if soundEnabled {
+		sounds.PlayStop()
+	}
 
 	a.emitState()
 	runtime.EventsEmit(a.ctx, "historyChanged", a.GetHistory())

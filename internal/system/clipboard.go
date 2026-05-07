@@ -43,22 +43,10 @@ func SimulatePaste() error {
 	}
 }
 
-// simulatePasteMacOS uses AppleScript to simulate Cmd+V
+// simulatePasteMacOS uses native CGEvent to simulate Cmd+V
 func simulatePasteMacOS() error {
-	// First, activate the frontmost app (which should be the app the user was typing in)
-	// Then send Cmd+V
-	script := `
-tell application "System Events"
-	set frontApp to name of first application process whose frontmost is true
-	keystroke "v" using command down
-end tell
-`
-	cmd := exec.Command("osascript", "-e", script)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to simulate paste: %w, output: %s", err, string(output))
-	}
-	return nil
+	// Use native CGEvent approach which works with the app's accessibility permissions
+	return simulatePasteMacOSNative()
 }
 
 // simulatePasteLinux uses xdotool to simulate Ctrl+V

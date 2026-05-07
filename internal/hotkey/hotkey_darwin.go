@@ -26,13 +26,29 @@ extern void goEscapePressed(void);
 #define kVK_LeftOption 0x3A
 #define kVK_Function 0x3F
 
-// Check if accessibility permissions are granted
-static BOOL checkAccessibilityPermissions(void) {
-    // Check if we have accessibility permissions
-    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @YES};
+// Check if accessibility permissions are granted (with optional prompt)
+static int checkAccessibilityPermissionsWithPrompt(int shouldPrompt) {
+    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @(shouldPrompt ? YES : NO)};
     BOOL trusted = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
     if (!trusted) {
-        NSLog(@"Accessibility permissions not granted - please enable in System Preferences");
+        NSLog(@"Accessibility permissions not granted - please enable in System Preferences > Privacy & Security > Accessibility");
+    }
+    return trusted ? 1 : 0;
+}
+
+// Check if accessibility permissions are granted (always prompts)
+static BOOL checkAccessibilityPermissions(void) {
+    return checkAccessibilityPermissionsWithPrompt(1) ? YES : NO;
+}
+
+// Request accessibility permissions explicitly (always shows prompt)
+static int requestAccessibilityPermissions(void) {
+    NSLog(@"Requesting accessibility permissions...");
+    int trusted = checkAccessibilityPermissionsWithPrompt(1);
+    if (!trusted) {
+        NSLog(@"IMPORTANT: Please grant Accessibility permissions to enable Escape key and auto-paste features");
+        NSLog(@"Go to: System Preferences > Privacy & Security > Accessibility");
+        NSLog(@"Add and enable this application");
     }
     return trusted;
 }
@@ -138,12 +154,19 @@ static void stopMonitoring(void) {
 }
 
 static void startEscapeMonitoring(void) {
+    gEscapeEnabled = YES;  // Always enable first, even if monitors already exist
+    
+    // Check accessibility permissions
+    if (!checkAccessibilityPermissions()) {
+        NSLog(@"WARNING: Cannot monitor escape key without accessibility permissions!");
+    }
+    
     if (gKeyEventMonitor != nil) {
+        NSLog(@"Escape key monitoring re-enabled (monitors already exist)");
         return;
     }
     
-    gEscapeEnabled = YES;
-    NSLog(@"Starting escape key monitoring");
+    NSLog(@"Starting escape key monitoring - creating new monitors");
     
     // Global monitor for when other apps have focus
     gKeyEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown
@@ -182,6 +205,7 @@ static void stopEscapeMonitoring(void) {
 import "C"
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -204,11 +228,15 @@ func goHotkeyPressed() {
 
 //export goEscapePressed
 func goEscapePressed() {
+	fmt.Println("DEBUG: goEscapePressed called from native code")
 	escapeCallbackMu.Lock()
 	cb := escapeCallback
 	escapeCallbackMu.Unlock()
 	if cb != nil {
+		fmt.Println("DEBUG: Escape callback exists, calling it")
 		go cb()
+	} else {
+		fmt.Println("DEBUG: WARNING - Escape callback is nil!")
 	}
 }
 
@@ -321,11 +349,14 @@ func (m *Manager) IsRegistered() bool {
 
 // EnableEscapeCancel starts monitoring for Escape key to cancel recording
 func (m *Manager) EnableEscapeCancel(cb func()) {
+	fmt.Println("EnableEscapeCancel: setting callback")
 	escapeCallbackMu.Lock()
 	escapeCallback = cb
 	escapeCallbackMu.Unlock()
 	
+	fmt.Println("EnableEscapeCancel: calling C.startEscapeMonitoring()")
 	C.startEscapeMonitoring()
+	fmt.Println("EnableEscapeCancel: done")
 }
 
 // DisableEscapeCancel stops monitoring for Escape key
@@ -334,4 +365,15 @@ func (m *Manager) DisableEscapeCancel() {
 	escapeCallbackMu.Lock()
 	escapeCallback = nil
 	escapeCallbackMu.Unlock()
+}
+
+// RequestAccessibilityPermissions prompts user for accessibility permissions
+// Returns true if permissions are granted
+func RequestAccessibilityPermissions() bool {
+	return C.requestAccessibilityPermissions() != 0
+}
+
+// HasAccessibilityPermissions checks if accessibility permissions are granted without prompting
+func HasAccessibilityPermissions() bool {
+	return C.checkAccessibilityPermissionsWithPrompt(0) != 0
 }

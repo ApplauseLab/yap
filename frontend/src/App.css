@@ -940,6 +940,7 @@ body {
 .detail-header > span {
   font-size: 13px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .detail-actions {
@@ -950,13 +951,12 @@ body {
 .detail-header button {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  justify-content: center;
+  padding: 8px;
   background: var(--bg-card);
   border: none;
   border-radius: 6px;
   color: var(--text-secondary);
-  font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
 }

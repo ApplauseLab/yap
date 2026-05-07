@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
-import recordingStartSound from './assets/sounds/start.mp3';
-import recordingStopSound from './assets/sounds/stop.mp3';
+// Sound playback is now handled natively in Go (internal/sounds)
 import {
   GetState,
   ToggleRecording,
@@ -20,6 +19,7 @@ import {
   CopyHistoryItem,
   DeleteHistoryItem,
   GetAudioData,
+  ShowInFolder,
   GetAudioInputDevices,
   SetAudioInputDevice,
   GetStats,
@@ -170,68 +170,39 @@ function App() {
     return () => { if (interval) clearInterval(interval); };
   }, [appState.state]);
 
-  // Track previous state for sound effect
+  // Track previous state for UI updates
   const prevStateRef = useRef<string>('ready');
+  
+  // NOTE: Sound playback is now handled natively in Go (internal/sounds)
+  // This ensures reliable playback even when app is idle or in background
 
-  // Play start sound (returns promise that resolves after sound plays)
-  const playStartSound = useCallback(() => {
-    if (config?.soundEnabled === false) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      const audio = new Audio(recordingStartSound);
-      audio.volume = 0.6;
-      audio.play().catch(err => console.error('Failed to play start sound:', err));
-      // Wait for sound to finish before resolving (so mic doesn't capture it)
-      setTimeout(resolve, 500);
-    });
-  }, [config?.soundEnabled]);
-
-  // Play stop sound (after recording ends, so it won't be captured)
-  const playStopSound = useCallback(() => {
-    if (config?.soundEnabled === false) return;
-    const audio = new Audio(recordingStopSound);
-    audio.volume = 0.6;
-    audio.play().catch(err => console.error('Failed to play stop sound:', err));
-  }, [config?.soundEnabled]);
-
-  // Track if we triggered via button (to avoid double-playing start sound)
+  // Track if we triggered via button
   const buttonTriggeredRef = useRef(false);
 
-  // Play sounds on state changes
+  // Track state changes
   useEffect(() => {
     const prevState = prevStateRef.current;
     const currentState = appState.state;
     
-    const isStarting = prevState !== 'recording' && currentState === 'recording';
-    const isStopping = prevState === 'recording' && currentState !== 'recording';
-    
-    // For hotkey-triggered start, play sound (may capture briefly)
-    if (isStarting && !buttonTriggeredRef.current) {
-      if (config?.soundEnabled !== false) {
-        const audio = new Audio(recordingStartSound);
-        audio.volume = 0.6;
-        audio.play().catch(err => console.error('Failed to play start sound:', err));
-      }
-    }
-    
-    if (isStopping) {
-      playStopSound();
+    // Track state transitions for button trigger flag
+    if (prevState !== 'recording' && currentState === 'recording') {
+      // Recording started
     }
     
     buttonTriggeredRef.current = false;
     prevStateRef.current = currentState;
-  }, [appState.state, playStopSound, config?.soundEnabled]);
+  }, [appState.state]);
 
   const handleToggleRecording = useCallback(async () => {
     const isCurrentlyRecording = appState.state === 'recording';
     try {
       if (!isCurrentlyRecording) {
         buttonTriggeredRef.current = true;
-        // Play start sound first, wait for it to finish, then start recording
-        await playStartSound();
       }
+      // Sound playback is handled in Go before recording starts
       await ToggleRecording();
     } catch (err) { console.error(err); }
-  }, [appState.state, playStartSound]);
+  }, [appState.state]);
 
   const handleCancelRecording = useCallback(async () => {
     try { await CancelRecording(); } catch (err) { console.error(err); }
@@ -775,6 +746,7 @@ function App() {
                         <button 
                           className={`play-btn ${isPlaying ? 'playing' : ''}`}
                           onClick={() => isPlaying ? stopAudio() : playAudio(selectedHistory.id)}
+                          title={isPlaying ? 'Stop' : 'Play'}
                         >
                           {isPlaying ? (
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -786,22 +758,28 @@ function App() {
                               <polygon points="5 3 19 12 5 21 5 3"/>
                             </svg>
                           )}
-                          {isPlaying ? 'Stop' : 'Play'}
                         </button>
                       )}
-                      <button onClick={() => CopyHistoryItem(selectedHistory.id)}>
+                      <button onClick={() => CopyHistoryItem(selectedHistory.id)} title="Copy">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                         </svg>
-                        Copy
                       </button>
+                      {selectedHistory.hasAudio && (
+                        <button onClick={() => ShowInFolder(selectedHistory.id)} title="Show in Folder">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                          </svg>
+                        </button>
+                      )}
                       <button 
                         className="delete-btn"
                         onClick={() => {
                           DeleteHistoryItem(selectedHistory.id);
                           setSelectedHistory(null);
                         }}
+                        title="Delete"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <polyline points="3 6 5 6 21 6"/>
@@ -809,7 +787,6 @@ function App() {
                           <line x1="10" y1="11" x2="10" y2="17"/>
                           <line x1="14" y1="11" x2="14" y2="17"/>
                         </svg>
-                        Delete
                       </button>
                     </div>
                   </div>
