@@ -260,14 +260,23 @@ function App() {
   }, [audioSource]);
 
   const playAudio = useCallback(async (id: string) => {
-    // Stop any currently playing audio
+    console.log('playAudio called with id:', id);
+    
+    // Stop any currently playing audio - wrap in try-catch to handle already-stopped sources
     if (audioSource) {
-      audioSource.stop();
+      try {
+        audioSource.stop();
+      } catch {
+        // Already stopped, ignore InvalidStateError
+      }
+      setAudioSource(null);
     }
 
     try {
       // Get audio data as base64
+      console.log('Fetching audio data...');
       const base64Data = await GetAudioData(id);
+      console.log('Got audio data, length:', base64Data.length);
       
       // Decode base64 to binary
       const binaryString = atob(base64Data);
@@ -275,16 +284,25 @@ function App() {
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
+      console.log('Decoded bytes:', bytes.length);
       
-      // Create or reuse AudioContext
+      // Create or reuse AudioContext (recreate if closed)
       let ctx = audioContext;
-      if (!ctx) {
+      if (!ctx || ctx.state === 'closed') {
         ctx = new AudioContext();
         setAudioContext(ctx);
       }
+      console.log('AudioContext state:', ctx.state);
+      
+      // Resume if suspended (needed for some browsers)
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
       
       // Decode audio data
+      console.log('Decoding audio buffer...');
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+      console.log('Audio buffer decoded, duration:', audioBuffer.duration);
       
       // Create and play source
       const source = ctx.createBufferSource();
@@ -295,6 +313,7 @@ function App() {
         setAudioSource(null);
       };
       source.start();
+      console.log('Audio playback started');
       
       setAudioSource(source);
       setIsPlaying(true);
