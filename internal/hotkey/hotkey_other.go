@@ -82,3 +82,10 @@ func GetHotkeyDisplayName(hotkeyType string) string {
 		return "Right Option (⌥)"
 	}
 }
+
+// RequestAccessibilityPermissions is a no-op on non-darwin platforms
+// Returns true since no special permissions are needed
+func RequestAccessibilityPermissions() bool {
+	// No accessibility permissions needed on non-macOS platforms
+	return true
+}
