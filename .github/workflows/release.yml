@@ -136,6 +136,8 @@ jobs:
       - name: Install NSIS
         run: |
           choco install nsis -y
+          # Add NSIS to PATH
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
@@ -146,9 +148,14 @@ jobs:
 
       - name: Build Windows App
         run: |
-          wails build -platform windows/amd64 -nsis -o "ApplauseWhisper"
+          wails build -platform windows/amd64 -nsis -o "ApplauseWhisper.exe"
         env:
           CGO_ENABLED: 1
+
+      - name: List build output
+        run: |
+          echo "Contents of build/bin:"
+          Get-ChildItem -Path "build\bin" -Recurse | ForEach-Object { Write-Host $_.FullName }
 
       - name: Rename installer
         run: |
