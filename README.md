@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/readme-icon.svg" width="128" height="128" alt="Applause Whisper">
+  <img src="build/readme-icon.svg" width="128" height="128" alt="ApplauseWhisper">
 </p>
 
-<h1 align="center">Applause Whisper</h1>
+<h1 align="center">ApplauseWhisper</h1>
 
 <p align="center">
   Dictate anywhere. Free and local-first.
@@ -22,7 +22,7 @@
 
 ## About
 
-Applause Whisper is a desktop application that transcribes your speech and automatically pastes the text into any application. Press a hotkey, speak, and your words appear wherever your cursor is.
+ApplauseWhisper is a desktop application that transcribes your speech and automatically pastes the text into any application. Press a hotkey, speak, and your words appear wherever your cursor is.
 
 Choose between **local transcription** using [whisper.cpp](https://github.com/ggerganov/whisper.cpp) for complete privacy and offline use, or **cloud transcription** via OpenAI's Whisper API for maximum accuracy.
 
