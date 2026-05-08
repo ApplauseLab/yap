@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/greenearblack.svg" width="128" height="128" alt="Applause Whisper">
+  <img src="build/appicon.png" width="128" height="128" alt="Applause Whisper">
 </p>
 
 <h1 align="center">Applause Whisper</h1>
