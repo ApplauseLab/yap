@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	"applause-whisper/internal/tray"
+	"yap/internal/tray"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -37,7 +37,7 @@ func main() {
 	app.SetTray(tray.SetRecording)
 
 	err := wails.Run(&options.App{
-		Title:     "Applause Whisper",
+		Title:     "Yap",
 		Width:     950,
 		Height:    620,
 		MinWidth:  850,
@@ -64,10 +64,10 @@ func main() {
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
-			About: &mac.AboutInfo{
-				Title:   "Applause Whisper",
-				Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv1.0.0",
-			},
+		About: &mac.AboutInfo{
+			Title:   "Yap",
+			Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv1.0.0",
+		},
 		},
 	})
 

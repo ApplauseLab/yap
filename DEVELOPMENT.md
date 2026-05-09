@@ -1,9 +1,9 @@
-# Applause Whisper - Development Guide
+# Yap - Development Guide
 
 ## Project Structure
 
 ```
-applause-whisper/
+yap/
 ├── app.go                 # Main app logic (recording, transcription, state)
 ├── main.go                # Wails entry point, window config
 ├── internal/
@@ -24,7 +24,7 @@ applause-whisper/
 
 ## TMux Session Layout
 
-The development tmux session `applause` has 3 windows:
+The development tmux session `yap` has 3 windows:
 
 | Window | Name    | Purpose                          |
 |--------|---------|----------------------------------|
@@ -36,15 +36,15 @@ The development tmux session `applause` has 3 windows:
 
 ```bash
 # Create tmux session (if not exists)
-tmux new-session -d -s applause -n opencode
-tmux new-window -t applause -n wails
-tmux new-window -t applause -n shell
+tmux new-session -d -s yap -n opencode
+tmux new-window -t yap -n wails
+tmux new-window -t yap -n shell
 
 # Start wails dev in window 1
-tmux send-keys -t applause:wails "cd /path/to/applause-whisper && wails dev" Enter
+tmux send-keys -t yap:wails "cd /path/to/yap && wails dev" Enter
 
 # Attach to session
-tmux attach -t applause
+tmux attach -t yap
 ```
 
 ### Window Navigation

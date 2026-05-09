@@ -1,4 +1,4 @@
-module applause-whisper
+module yap
 
 go 1.23
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './RecordingOverlay.css';
+import YapIcon from './assets/yap-icon.svg';
 
 interface RecordingOverlayProps {
   isRecording: boolean;
@@ -98,15 +99,7 @@ export function RecordingOverlay({ isRecording, onStop, onCancel }: RecordingOve
         <div className="recording-controls">
           <div className="recording-logo">
             <div className="logo-with-mic">
-              <svg width="28" height="28" viewBox="0 0 130 130" fill="none">
-                <rect x="11" y="11" width="108" height="108" fill="#00ff4e"/>
-                <g fill="#000" opacity="0.9">
-                  <rect x="55" y="35" width="20" height="35" rx="10"/>
-                  <path d="M45 60v10a20 20 0 0040 0V60h-6v10a14 14 0 01-28 0V60h-6z"/>
-                  <rect x="62" y="85" width="6" height="15"/>
-                  <rect x="52" y="95" width="26" height="5" rx="2"/>
-                </g>
-              </svg>
+            <img src={YapIcon} alt="Yap" width="28" height="28" />
             </div>
           </div>
           

@@ -67,7 +67,7 @@ func NewConfigManager() (*ConfigManager, error) {
 		return nil, err
 	}
 
-	appConfigDir := filepath.Join(configDir, "applause-whisper")
+	appConfigDir := filepath.Join(configDir, "yap")
 	if err := os.MkdirAll(appConfigDir, 0755); err != nil {
 		return nil, err
 	}

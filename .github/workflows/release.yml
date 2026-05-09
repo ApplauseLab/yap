@@ -73,32 +73,32 @@ jobs:
 
       - name: Build macOS App
         run: |
-          wails build -platform darwin/arm64 -o "ApplauseWhisper"
+          wails build -platform darwin/arm64 -o "Yap"
 
       - name: Create DMG
         run: |
           create-dmg \
-            --volname "ApplauseWhisper" \
+            --volname "Yap" \
             --volicon "build/appicon.icns" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "ApplauseWhisper.app" 150 185 \
-            --hide-extension "ApplauseWhisper.app" \
+            --icon "Yap.app" 150 185 \
+            --hide-extension "Yap.app" \
             --app-drop-link 450 185 \
-            "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg" \
-            "build/bin/ApplauseWhisper.app" || true
+            "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg" \
+            "build/bin/Yap.app" || true
           
           # Fallback to hdiutil if create-dmg fails
-          if [ ! -f "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg" ]; then
-            hdiutil create -volname "ApplauseWhisper" -srcfolder "build/bin/ApplauseWhisper.app" -ov -format UDZO "ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          if [ ! -f "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg" ]; then
+            hdiutil create -volname "Yap" -srcfolder "build/bin/Yap.app" -ov -format UDZO "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
           fi
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg
+          path: Yap-${{ needs.prepare.outputs.version }}-macOS.dmg
           retention-days: 5
 
   # Build for Windows
@@ -148,7 +148,7 @@ jobs:
 
       - name: Build Windows App
         run: |
-          wails build -platform windows/amd64 -nsis -o "ApplauseWhisper.exe"
+          wails build -platform windows/amd64 -nsis -o "Yap.exe"
         env:
           CGO_ENABLED: 1
 
@@ -159,10 +159,10 @@ jobs:
 
       - name: Rename installer
         run: |
-          Move-Item -Path "build\bin\ApplauseWhisper-amd64-installer.exe" -Destination "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe" -ErrorAction SilentlyContinue
-          if (-not (Test-Path "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe")) {
+          Move-Item -Path "build\bin\Yap-amd64-installer.exe" -Destination "Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe" -ErrorAction SilentlyContinue
+          if (-not (Test-Path "Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe")) {
             Get-ChildItem -Path "build\bin" -Filter "*installer*.exe" | ForEach-Object {
-              Move-Item -Path $_.FullName -Destination "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe"
+              Move-Item -Path $_.FullName -Destination "Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe"
             }
           }
 
@@ -170,14 +170,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe
+          path: Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe
           retention-days: 5
 
       - name: Upload Windows Portable
         uses: actions/upload-artifact@v4
         with:
           name: windows-portable
-          path: build/bin/ApplauseWhisper.exe
+          path: build/bin/Yap.exe
           retention-days: 5
 
   # Build for Linux
@@ -221,7 +221,7 @@ jobs:
 
       - name: Build Linux App
         run: |
-          wails build -platform linux/amd64 -o "applause-whisper"
+          wails build -platform linux/amd64 -o "yap"
 
       - name: Create AppImage
         run: |
@@ -235,22 +235,22 @@ jobs:
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           
           # Copy binary
-          cp build/bin/applause-whisper AppDir/usr/bin/
-          chmod +x AppDir/usr/bin/applause-whisper
+          cp build/bin/yap AppDir/usr/bin/
+          chmod +x AppDir/usr/bin/yap
           
           # Create desktop entry
-          cat > AppDir/usr/share/applications/applause-whisper.desktop << EOF
+          cat > AppDir/usr/share/applications/yap.desktop << EOF
           [Desktop Entry]
-          Name=Applause Whisper
+          Name=Yap
           Comment=Speech-to-Text Desktop App
-          Exec=applause-whisper
-          Icon=applause-whisper
+          Exec=yap
+          Icon=yap
           Type=Application
           Categories=Utility;Audio;
           EOF
           
           # Copy icon
-          cp build/appicon.iconset/icon_256x256.png AppDir/usr/share/icons/hicolor/256x256/apps/applause-whisper.png
+          cp build/appicon.iconset/icon_256x256.png AppDir/usr/share/icons/hicolor/256x256/apps/yap.png
           
           # Create AppRun
           cat > AppDir/AppRun << 'EOF'
@@ -258,21 +258,21 @@ jobs:
           SELF=$(readlink -f "$0")
           HERE=${SELF%/*}
           export PATH="${HERE}/usr/bin:${PATH}"
-          exec "${HERE}/usr/bin/applause-whisper" "$@"
+          exec "${HERE}/usr/bin/yap" "$@"
           EOF
           chmod +x AppDir/AppRun
           
           # Link desktop and icon to root
-          ln -sf usr/share/applications/applause-whisper.desktop AppDir/applause-whisper.desktop
-          ln -sf usr/share/icons/hicolor/256x256/apps/applause-whisper.png AppDir/applause-whisper.png
+          ln -sf usr/share/applications/yap.desktop AppDir/yap.desktop
+          ln -sf usr/share/icons/hicolor/256x256/apps/yap.png AppDir/yap.png
           
           # Build AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage"
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir "Yap-${{ needs.prepare.outputs.version }}-Linux.AppImage"
 
       - name: Create DEB package
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          PKG_NAME="applause-whisper_${VERSION}_amd64"
+          PKG_NAME="yap_${VERSION}_amd64"
           
           # Create package structure
           mkdir -p "${PKG_NAME}/DEBIAN"
@@ -281,26 +281,26 @@ jobs:
           mkdir -p "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps"
           
           # Copy binary
-          cp build/bin/applause-whisper "${PKG_NAME}/usr/bin/"
-          chmod +x "${PKG_NAME}/usr/bin/applause-whisper"
+          cp build/bin/yap "${PKG_NAME}/usr/bin/"
+          chmod +x "${PKG_NAME}/usr/bin/yap"
           
           # Copy icon
-          cp build/appicon.iconset/icon_256x256.png "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps/applause-whisper.png"
+          cp build/appicon.iconset/icon_256x256.png "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps/yap.png"
           
           # Create desktop entry
-          cat > "${PKG_NAME}/usr/share/applications/applause-whisper.desktop" << EOF
+          cat > "${PKG_NAME}/usr/share/applications/yap.desktop" << EOF
           [Desktop Entry]
-          Name=Applause Whisper
+          Name=Yap
           Comment=Speech-to-Text Desktop App by applauselab.ai
-          Exec=/usr/bin/applause-whisper
-          Icon=applause-whisper
+          Exec=/usr/bin/yap
+          Icon=yap
           Type=Application
           Categories=Utility;Audio;
           EOF
           
           # Create control file
           cat > "${PKG_NAME}/DEBIAN/control" << EOF
-          Package: applause-whisper
+          Package: yap
           Version: ${VERSION}
           Section: utils
           Priority: optional
@@ -308,26 +308,26 @@ jobs:
           Depends: libgtk-3-0, libwebkit2gtk-4.0-37, libportaudio2
           Maintainer: Applause Lab <hello@applauselab.ai>
           Description: Speech-to-Text Desktop App
-           Applause Whisper is a speech-to-text desktop application
+           Yap is a speech-to-text desktop application
            powered by OpenAI Whisper API.
           EOF
           
           # Build deb package
           dpkg-deb --build "${PKG_NAME}"
-          mv "${PKG_NAME}.deb" "ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb"
+          mv "${PKG_NAME}.deb" "Yap-${{ needs.prepare.outputs.version }}-Linux.deb"
 
       - name: Upload Linux AppImage
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage
+          path: Yap-${{ needs.prepare.outputs.version }}-Linux.AppImage
           retention-days: 5
 
       - name: Upload Linux DEB
         uses: actions/upload-artifact@v4
         with:
           name: linux-deb
-          path: ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb
+          path: Yap-${{ needs.prepare.outputs.version }}-Linux.deb
           retention-days: 5
 
   # Create GitHub Release and upload all artifacts
@@ -351,7 +351,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
-          name: ApplauseWhisper ${{ needs.prepare.outputs.version }}
+          name: Yap ${{ needs.prepare.outputs.version }}
           draft: false
           prerelease: ${{ contains(needs.prepare.outputs.version, 'dev') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'alpha') }}
           generate_release_notes: true
@@ -362,22 +362,24 @@ jobs:
             artifacts/linux-appimage/*.AppImage
             artifacts/linux-deb/*.deb
           body: |
-            ## ApplauseWhisper ${{ needs.prepare.outputs.version }}
+            ## Yap ${{ needs.prepare.outputs.version }}
             
-            Speech-to-Text Desktop App by [ApplauseLab](https://applauselab.ai)
+            Speech-to-Text Desktop App by [Applause Lab](https://applauselab.ai)
             
             ### Downloads
             
             | Platform | Download |
             |----------|----------|
-            | macOS (Apple Silicon, Intel via Rosetta) | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-macOS.dmg` |
-            | Windows Installer | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Windows-Setup.exe` |
-            | Linux AppImage | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.AppImage` |
-            | Linux DEB | `ApplauseWhisper-${{ needs.prepare.outputs.version }}-Linux.deb` |
+            | macOS (Apple Silicon, Intel via Rosetta) | `Yap-${{ needs.prepare.outputs.version }}-macOS.dmg` |
+            | Windows Installer | `Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe` |
+            | Linux AppImage | `Yap-${{ needs.prepare.outputs.version }}-Linux.AppImage` |
+            | Linux DEB | `Yap-${{ needs.prepare.outputs.version }}-Linux.deb` |
             
             ### Installation
             
             **macOS:** Open the DMG, drag to Applications folder
             **Windows:** Run the installer
-            **Linux (AppImage):** `chmod +x *.AppImage && ./ApplauseWhisper-*.AppImage`
-            **Linux (DEB):** `sudo dpkg -i ApplauseWhisper-*.deb`
+            **Linux (AppImage):** `chmod +x *.AppImage && ./Yap-*.AppImage` (Recommended - works on all distros)
+            **Linux (DEB):** `sudo apt install ./Yap-*.deb` (Ubuntu/Debian - auto-installs dependencies)
+            
+            > **Note:** The DEB package requires `libwebkit2gtk-4.0-37` and `libportaudio2`. Using `apt install` (not `dpkg -i`) will automatically install these. For other Linux distributions, use the AppImage.

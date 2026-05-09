@@ -11,13 +11,13 @@ import (
 	"sync"
 	"time"
 
-	"applause-whisper/internal/audio"
-	"applause-whisper/internal/hotkey"
-	"applause-whisper/internal/models"
-	"applause-whisper/internal/overlay"
-	"applause-whisper/internal/sounds"
-	"applause-whisper/internal/system"
-	"applause-whisper/internal/transcribe"
+	"yap/internal/audio"
+	"yap/internal/hotkey"
+	"yap/internal/models"
+	"yap/internal/overlay"
+	"yap/internal/sounds"
+	"yap/internal/system"
+	"yap/internal/transcribe"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/readme-icon.svg" width="128" height="128" alt="ApplauseWhisper">
+  <img src="build/readme-icon.svg" width="128" height="128" alt="Yap">
 </p>
 
-<h1 align="center">ApplauseWhisper</h1>
+<h1 align="center">Yap</h1>
 
 <p align="center">
   Dictate anywhere. Free and local-first.
@@ -22,7 +22,7 @@
 
 ## About
 
-ApplauseWhisper is a desktop application that transcribes your speech and automatically pastes the text into any application. Press a hotkey, speak, and your words appear wherever your cursor is.
+Yap is a desktop application that transcribes your speech and automatically pastes the text into any application. Press a hotkey, speak, and your words appear wherever your cursor is.
 
 Choose between **local transcription** using [whisper.cpp](https://github.com/ggerganov/whisper.cpp) for complete privacy and offline use, or **cloud transcription** via OpenAI's Whisper API for maximum accuracy.
 
@@ -32,11 +32,11 @@ Built with [Wails](https://wails.io/) (Go + React).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon, Intel via Rosetta) | [DMG Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
-| **Windows** | [Installer](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
-| **Linux** | [AppImage](https://github.com/ApplauseLab/applause-whisper/releases/latest) · [DEB](https://github.com/ApplauseLab/applause-whisper/releases/latest) |
+| **macOS** (Apple Silicon, Intel via Rosetta) | [DMG Installer](https://github.com/ApplauseLab/yap/releases/latest) |
+| **Windows** | [Installer](https://github.com/ApplauseLab/yap/releases/latest) |
+| **Linux** | [AppImage](https://github.com/ApplauseLab/yap/releases/latest) · [DEB](https://github.com/ApplauseLab/yap/releases/latest) |
 
-See all versions on the [Releases page](https://github.com/ApplauseLab/applause-whisper/releases).
+See all versions on the [Releases page](https://github.com/ApplauseLab/yap/releases).
 
 ## Features
 
@@ -65,10 +65,10 @@ English-only models (e.g., `base.en`) are faster and more accurate for English.
 
 ### Download Release
 
-1. Download the installer for your platform from the [Releases page](https://github.com/ApplauseLab/applause-whisper/releases/latest)
+1. Download the installer for your platform from the [Releases page](https://github.com/ApplauseLab/yap/releases/latest)
 2. **macOS**: Open the DMG and drag to Applications
 3. **Windows**: Run the installer
-4. **Linux**: `chmod +x *.AppImage && ./ApplauseWhisper-*.AppImage` or `sudo dpkg -i *.deb`
+4. **Linux**: `chmod +x *.AppImage && ./Yap-*.AppImage` or `sudo dpkg -i *.deb`
 
 ### Build from Source
 
@@ -94,8 +94,8 @@ brew install whisper-cpp  # macOS
 #### Build
 
 ```bash
-git clone https://github.com/ApplauseLab/applause-whisper.git
-cd applause-whisper
+git clone https://github.com/ApplauseLab/yap.git
+cd yap
 
 # Install Wails CLI
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -104,7 +104,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails build
 
 # Run
-open build/bin/ApplauseWhisper.app  # macOS
+open build/bin/Yap.app  # macOS
 ```
 
 ## Development

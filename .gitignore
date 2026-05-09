@@ -4,8 +4,8 @@ frontend/dist
 .DS_Store
 
 # Build artifacts
-applause-whisper
-ApplauseWhisper
+yap
+Yap
 *.exe
 *.dmg
 *.AppImage

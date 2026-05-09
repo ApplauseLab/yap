@@ -25,7 +25,7 @@ static NSRunningApplication *gPreviousFrontApp = nil;
 // Save the current frontmost app (call before showing overlay)
 void saveFrontmostApp(void) {
     NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    if (frontApp && ![frontApp.bundleIdentifier isEqualToString:@"com.wails.ApplauseWhisper"]) {
+    if (frontApp && ![frontApp.bundleIdentifier isEqualToString:@"com.wails.Yap"]) {
         gPreviousFrontApp = frontApp;
         NSLog(@"saveFrontmostApp: saved %@", frontApp.localizedName);
     }
