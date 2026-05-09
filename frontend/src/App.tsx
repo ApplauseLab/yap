@@ -394,7 +394,6 @@ function App() {
               <polyline points="12 6 12 12 16 14"/>
             </svg>
             <span>History</span>
-            {history.length > 0 && <span className="badge">{history.length}</span>}
           </button>
         </nav>
 
@@ -499,7 +498,6 @@ function App() {
                     <span className="action-title">View history</span>
                     <span className="action-desc">Browse and replay past transcriptions</span>
                   </div>
-                  {history.length > 0 && <span className="action-badge">{history.length}</span>}
                 </div>
               </div>
             </div>
@@ -692,7 +690,7 @@ function App() {
             </section>
 
             <div className="settings-footer">
-              <span>v1.0.0</span>
+              <span>v0.1.0</span>
               <span className="powered-link">Powered by <a href="https://applauselab.ai" target="_blank" rel="noopener noreferrer">applauselab.ai</a></span>
             </div>
           </div>
@@ -795,7 +793,6 @@ function App() {
                   </div>
                   <div className="detail-footer">
                     <span>Duration: {formatDuration(selectedHistory.duration)}</span>
-                    {selectedHistory.hasAudio && <span className="has-audio-badge">Audio available</span>}
                   </div>
                 </>
               ) : (

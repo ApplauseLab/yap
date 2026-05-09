@@ -5,21 +5,21 @@
 }
 
 :root {
-  /* Native dark theme with ApplauseLab green accent */
-  --bg-dark: #1e1b2e;
-  --bg-sidebar: #16131f;
-  --bg-card: #252236;
-  --bg-hover: #2d2a3d;
-  --bg-active: #3d3a52;
+  /* Native macOS dark theme with ApplauseLab green accent */
+  --bg-dark: #1c1c1e;
+  --bg-sidebar: #161617;
+  --bg-card: #2c2c2e;
+  --bg-hover: #3a3a3c;
+  --bg-active: #48484a;
   --accent: #00ff4e;
-  --accent-dim: rgba(0, 255, 78, 0.8);
+  --accent-dim: rgba(0, 255, 78, 0.7);
   --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-  --text-muted: #6b6b7b;
-  --border: rgba(255, 255, 255, 0.08);
-  --success: #00ff4e;
-  --danger: #ef4444;
-  --warning: #f59e0b;
+  --text-secondary: #98989d;
+  --text-muted: #636366;
+  --border: rgba(255, 255, 255, 0.1);
+  --success: #30d158;
+  --danger: #ff453a;
+  --warning: #ffd60a;
 }
 
 body {
@@ -261,7 +261,7 @@ body {
   width: 100px;
   height: 100px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent) 0%, #00cc3e 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, #00d142 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -345,7 +345,7 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #00cc3e);
+  background: linear-gradient(90deg, var(--accent), #00d142);
   border-radius: 3px;
   transition: width 0.3s;
 }
@@ -982,7 +982,7 @@ body {
 }
 
 .play-btn.playing:hover {
-  background: #dc2626 !important;
+  background: #d63030 !important;
 }
 
 .delete-btn {

@@ -16,8 +16,8 @@
 }
 
 .recording-modal {
-  background: rgba(30, 30, 30, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(28, 28, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 24px 28px;
   min-width: 420px;
@@ -95,17 +95,17 @@
 }
 
 .stop-btn {
-  background: #2a2a2a;
+  background: #2c2c2e;
   color: #ffffff;
 }
 
 .stop-btn:hover {
-  background: #3a3a3a;
+  background: #3a3a3c;
 }
 
 .cancel-btn {
   background: transparent;
-  color: #888;
+  color: #98989d;
 }
 
 .cancel-btn:hover {
