@@ -35,6 +35,9 @@ type Config struct {
 
 	// Sound enabled for recording start/stop
 	SoundEnabled *bool `json:"soundEnabled,omitempty"`
+
+	// OnboardingCompleted indicates whether the user has completed the onboarding flow
+	OnboardingCompleted bool `json:"onboardingCompleted"`
 }
 
 // DefaultConfig returns the default configuration
@@ -174,5 +177,16 @@ func (cm *ConfigManager) SetRecordingHotkey(hotkey string) error {
 // SetSoundEnabled updates the sound enabled setting
 func (cm *ConfigManager) SetSoundEnabled(enabled bool) error {
 	cm.config.SoundEnabled = &enabled
+	return cm.Save()
+}
+
+// IsOnboardingCompleted returns whether onboarding has been completed
+func (cm *ConfigManager) IsOnboardingCompleted() bool {
+	return cm.config.OnboardingCompleted
+}
+
+// SetOnboardingCompleted marks onboarding as completed
+func (cm *ConfigManager) SetOnboardingCompleted(completed bool) error {
+	cm.config.OnboardingCompleted = completed
 	return cm.Save()
 }

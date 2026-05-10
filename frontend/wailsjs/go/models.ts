@@ -120,6 +120,7 @@ export namespace models {
 	    hotkeyKey: string;
 	    recordingHotkey: string;
 	    soundEnabled?: boolean;
+	    onboardingCompleted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -137,6 +138,7 @@ export namespace models {
 	        this.hotkeyKey = source["hotkeyKey"];
 	        this.recordingHotkey = source["recordingHotkey"];
 	        this.soundEnabled = source["soundEnabled"];
+	        this.onboardingCompleted = source["onboardingCompleted"];
 	    }
 	}
 

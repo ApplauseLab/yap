@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
+import { Onboarding } from './Onboarding';
 // Sound playback is now handled natively in Go (internal/sounds)
 import {
   GetState,
@@ -26,6 +27,7 @@ import {
   GetRecordingHotkey,
   SetRecordingHotkey,
   Quit,
+  IsOnboardingCompleted,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogInfo } from '../wailsjs/runtime/runtime';
 
@@ -121,6 +123,14 @@ function App() {
     totalWords: 0,
   });
   const [currentHotkey, setCurrentHotkey] = useState<string>('rightOption');
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
+  // Check if onboarding is needed on mount
+  useEffect(() => {
+    IsOnboardingCompleted().then((completed: boolean) => {
+      setShowOnboarding(!completed);
+    });
+  }, []);
 
   useEffect(() => {
     GetState().then((state: AppState) => setAppState(state));
@@ -355,6 +365,27 @@ function App() {
   const currentModel = models.find(m => m.name === appState.currentModel);
   const needsDownload = appState.currentProvider === 'local' && currentModel && !currentModel.downloaded;
 
+  const handleOnboardingComplete = useCallback(() => {
+    setShowOnboarding(false);
+    // Refresh models and state after onboarding
+    GetModels().then((models: ModelInfo[]) => setModels(models));
+    GetState().then((state: AppState) => setAppState(state));
+  }, []);
+
+  // Show loading state while checking onboarding status
+  if (showOnboarding === null) {
+    return (
+      <div className="app-loading">
+        <div className="loading-spinner" />
+      </div>
+    );
+  }
+
+  // Show onboarding if not completed
+  if (showOnboarding) {
+    return <Onboarding onComplete={handleOnboardingComplete} />;
+  }
+
   return (
     <>
     <div className="app">
@@ -448,11 +479,19 @@ function App() {
 
             {downloadProgress && (
               <div className="download-progress">
-                <p>Downloading {downloadProgress.model}...</p>
+                <div className="download-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </div>
+                <p>Downloading {currentModel?.displayName || downloadProgress.model}</p>
+                <div className="download-subtitle">{currentModel?.size}</div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${downloadProgress.progress}%` }} />
                 </div>
-                <span>{downloadProgress.progress.toFixed(1)}%</span>
+                <span>{downloadProgress.progress.toFixed(0)}%</span>
               </div>
             )}
 

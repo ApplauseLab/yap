@@ -6,6 +6,10 @@ export function CancelRecording() {
   return window['go']['main']['App']['CancelRecording']();
 }
 
+export function CheckMicrophonePermission() {
+  return window['go']['main']['App']['CheckMicrophonePermission']();
+}
+
 export function ClearHistory() {
   return window['go']['main']['App']['ClearHistory']();
 }
@@ -70,6 +74,10 @@ export function IsModelDownloaded(arg1) {
   return window['go']['main']['App']['IsModelDownloaded'](arg1);
 }
 
+export function IsOnboardingCompleted() {
+  return window['go']['main']['App']['IsOnboardingCompleted']();
+}
+
 export function Minimize() {
   return window['go']['main']['App']['Minimize']();
 }
@@ -82,6 +90,10 @@ export function QuitApp() {
   return window['go']['main']['App']['QuitApp']();
 }
 
+export function RequestMicrophonePermission() {
+  return window['go']['main']['App']['RequestMicrophonePermission']();
+}
+
 export function SetAudioInputDevice(arg1) {
   return window['go']['main']['App']['SetAudioInputDevice'](arg1);
 }
@@ -92,6 +104,10 @@ export function SetAutoPaste(arg1) {
 
 export function SetModel(arg1) {
   return window['go']['main']['App']['SetModel'](arg1);
+}
+
+export function SetOnboardingCompleted(arg1) {
+  return window['go']['main']['App']['SetOnboardingCompleted'](arg1);
 }
 
 export function SetOpenAIKey(arg1) {

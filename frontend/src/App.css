@@ -299,60 +299,146 @@ body {
   color: var(--text-muted);
 }
 
+/* Download prompt card */
 .download-prompt {
   text-align: center;
-  padding: 20px;
-  background: var(--bg-card);
-  border-radius: 12px;
-  max-width: 300px;
+  padding: 28px 32px;
+  background: linear-gradient(135deg, var(--bg-card) 0%, rgba(0, 255, 78, 0.03) 100%);
+  border: 1px solid rgba(0, 255, 78, 0.15);
+  border-radius: 16px;
+  max-width: 340px;
 }
 
 .download-prompt p {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  line-height: 1.5;
 }
 
 .download-prompt button {
-  padding: 10px 20px;
+  padding: 12px 28px;
   background: var(--accent);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   color: #000;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
+.download-prompt button:hover {
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 255, 78, 0.3);
+}
+
+/* Download progress card */
 .download-progress {
   text-align: center;
-  width: 300px;
+  width: 100%;
+  max-width: 340px;
+  padding: 28px 32px;
+  background: var(--bg-card);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+}
+
+.download-progress .download-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 14px;
+  background: rgba(0, 255, 78, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulse-download 2s ease-in-out infinite;
+}
+
+@keyframes pulse-download {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+.download-progress .download-icon svg {
+  width: 28px;
+  height: 28px;
+  color: var(--accent);
+  animation: bounce-arrow 1s ease-in-out infinite;
+}
+
+@keyframes bounce-arrow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
 }
 
 .download-progress p {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.download-progress .download-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
 }
 
 .progress-bar {
-  height: 6px;
-  background: var(--bg-card);
-  border-radius: 3px;
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), #00d142);
-  border-radius: 3px;
-  transition: width 0.3s;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.25),
+    transparent
+  );
+  animation: shimmer-progress 1.5s infinite;
+}
+
+@keyframes shimmer-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .download-progress span {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .last-transcript {
@@ -1037,4 +1123,23 @@ body {
   justify-content: center;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* App loading state */
+.app-loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--bg-card);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
 }

@@ -921,3 +921,45 @@ func (a *App) QuitApp() {
 func (a *App) SetTray(onUpdate func(recording bool)) {
 	a.onTrayUpdate = onUpdate
 }
+
+// IsOnboardingCompleted checks if the user has completed onboarding
+func (a *App) IsOnboardingCompleted() bool {
+	return a.configManager.IsOnboardingCompleted()
+}
+
+// SetOnboardingCompleted marks onboarding as completed
+func (a *App) SetOnboardingCompleted(completed bool) error {
+	return a.configManager.SetOnboardingCompleted(completed)
+}
+
+// CheckMicrophonePermission checks if the app has microphone permission
+func (a *App) CheckMicrophonePermission() string {
+	// On macOS, we need to check the authorization status
+	// Returns: "granted", "denied", "undetermined"
+	// For now, we'll trigger a permission request by attempting to list devices
+	// The actual permission check requires calling macOS APIs
+	
+	// Try to list audio devices - this will trigger the permission prompt if needed
+	devices, err := audio.GetAudioInputDevices()
+	if err != nil {
+		return "denied"
+	}
+	if len(devices) > 0 {
+		return "granted"
+	}
+	return "undetermined"
+}
+
+// RequestMicrophonePermission requests microphone permission from the user
+func (a *App) RequestMicrophonePermission() string {
+	// Trigger permission request by attempting to access the microphone
+	// This will show the system permission dialog if not already granted
+	devices, err := audio.GetAudioInputDevices()
+	if err != nil {
+		return "denied"
+	}
+	if len(devices) > 0 {
+		return "granted"
+	}
+	return "undetermined"
+}

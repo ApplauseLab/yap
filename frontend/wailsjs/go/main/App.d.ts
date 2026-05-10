@@ -5,6 +5,8 @@ import {models} from '../models';
 
 export function CancelRecording():Promise<void>;
 
+export function CheckMicrophonePermission():Promise<string>;
+
 export function ClearHistory():Promise<void>;
 
 export function CopyHistoryItem(arg1:string):Promise<void>;
@@ -37,17 +39,23 @@ export function Hide():Promise<void>;
 
 export function IsModelDownloaded(arg1:string):Promise<boolean>;
 
+export function IsOnboardingCompleted():Promise<boolean>;
+
 export function Minimize():Promise<void>;
 
 export function Quit():Promise<void>;
 
 export function QuitApp():Promise<void>;
 
+export function RequestMicrophonePermission():Promise<string>;
+
 export function SetAudioInputDevice(arg1:string):Promise<void>;
 
 export function SetAutoPaste(arg1:boolean):Promise<void>;
 
 export function SetModel(arg1:string):Promise<void>;
+
+export function SetOnboardingCompleted(arg1:boolean):Promise<void>;
 
 export function SetOpenAIKey(arg1:string):Promise<void>;
 
