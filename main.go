@@ -66,7 +66,7 @@ func main() {
 			WindowIsTranslucent:  false,
 		About: &mac.AboutInfo{
 			Title:   "Yap",
-			Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv1.0.0",
+			Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv0.2.0",
 		},
 		},
 	})
