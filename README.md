@@ -15,7 +15,8 @@
   <a href="#download">Download</a> ·
   <a href="#features">Features</a> ·
   <a href="#installation">Installation</a> ·
-  <a href="#development">Development</a>
+  <a href="#development">Development</a> ·
+  <a href="#documentation">Documentation</a>
 </p>
 
 ---
@@ -123,6 +124,15 @@ The app requires the following permissions:
 
 - **Microphone** — For audio recording
 - **Accessibility** — For global hotkey and auto-paste functionality
+
+## Documentation
+
+For comprehensive documentation, visit **[applauselab.ai/docs/yap](https://applauselab.ai/docs/yap/)**.
+
+- [Getting Started](https://applauselab.ai/docs/yap/getting-started/) — Installation, quick start, and permissions
+- [User Guide](https://applauselab.ai/docs/yap/user-guide/) — Recording, transcription, models, history, and settings
+- [Developer Guide](https://applauselab.ai/docs/yap/developer/) — Building from source, project structure, and contributing
+- [Reference](https://applauselab.ai/docs/yap/reference/) — API reference, configuration, troubleshooting, and FAQ
 
 ## Contributing
 
