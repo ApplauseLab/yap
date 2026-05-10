@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
 import { Onboarding } from './Onboarding';
+import packageJson from '../package.json';
 // Sound playback is now handled natively in Go (internal/sounds)
 import {
   GetState,
@@ -729,7 +730,7 @@ function App() {
             </section>
 
             <div className="settings-footer">
-              <span>v0.1.0</span>
+              <span>v{packageJson.version}</span>
               <span className="powered-link">Powered by <a href="https://applauselab.ai" target="_blank" rel="noopener noreferrer">applauselab.ai</a></span>
             </div>
           </div>
