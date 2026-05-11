@@ -97,11 +97,11 @@ jobs:
             --volname "Yap" \
             --volicon "build/appicon.icns" \
             --window-pos 200 120 \
-            --window-size 600 400 \
+            --window-size 600 340 \
             --icon-size 100 \
-            --icon "Yap.app" 150 185 \
+            --icon "Yap.app" 150 150 \
             --hide-extension "Yap.app" \
-            --app-drop-link 450 185 \
+            --app-drop-link 450 150 \
             "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg" \
             "build/bin/Yap.app" || true
           
