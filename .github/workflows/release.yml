@@ -146,15 +146,16 @@ jobs:
         run: npm install
         working-directory: frontend
 
+      - name: Copy PortAudio DLL to build directory
+        run: |
+          New-Item -ItemType Directory -Force -Path "build\bin"
+          Copy-Item "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
+
       - name: Build Windows App
         run: |
           wails build -platform windows/amd64 -nsis -o "Yap.exe"
         env:
           CGO_ENABLED: 1
-
-      - name: Copy PortAudio DLL to build directory
-        run: |
-          Copy-Item "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
 
       - name: List build output
         run: |
