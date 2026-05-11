@@ -259,6 +259,10 @@ jobs:
           cp build/bin/yap AppDir/usr/bin/
           chmod +x AppDir/usr/bin/yap
           
+          # Copy PortAudio library for self-contained AppImage
+          mkdir -p AppDir/usr/lib
+          cp /usr/lib/x86_64-linux-gnu/libportaudio.so.2 AppDir/usr/lib/
+          
           # Create desktop entry
           cat > AppDir/usr/share/applications/yap.desktop << EOF
           [Desktop Entry]
@@ -279,6 +283,7 @@ jobs:
           SELF=$(readlink -f "$0")
           HERE=${SELF%/*}
           export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
           exec "${HERE}/usr/bin/yap" "$@"
           EOF
           chmod +x AppDir/AppRun
