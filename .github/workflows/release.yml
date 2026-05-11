@@ -152,6 +152,10 @@ jobs:
         env:
           CGO_ENABLED: 1
 
+      - name: Copy PortAudio DLL to build directory
+        run: |
+          Copy-Item "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
+
       - name: List build output
         run: |
           echo "Contents of build/bin:"

@@ -88,6 +88,9 @@ Section
 
     !insertmacro wails.files
 
+    ; Include PortAudio DLL for audio recording functionality
+    File "..\..\bin\portaudio.dll"
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
@@ -101,6 +104,9 @@ Section "uninstall"
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
+
+    ; Remove PortAudio DLL
+    Delete "$INSTDIR\portaudio.dll"
 
     RMDir /r $INSTDIR
 

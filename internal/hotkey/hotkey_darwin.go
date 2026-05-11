@@ -36,9 +36,9 @@ static int checkAccessibilityPermissionsWithPrompt(int shouldPrompt) {
     return trusted ? 1 : 0;
 }
 
-// Check if accessibility permissions are granted (always prompts)
-static BOOL checkAccessibilityPermissions(void) {
-    return checkAccessibilityPermissionsWithPrompt(1) ? YES : NO;
+// Check if accessibility permissions are granted (no prompt)
+static BOOL hasAccessibilityPermissions(void) {
+    return checkAccessibilityPermissionsWithPrompt(0) ? YES : NO;
 }
 
 // Request accessibility permissions explicitly (always shows prompt)
@@ -63,8 +63,8 @@ static void startMonitoringWithType(int hotkeyType) {
     gModifierKeyDown = NO;
     gLastRightOptionPress = 0;
     
-    // Check accessibility permissions first
-    if (!checkAccessibilityPermissions()) {
+    // Check accessibility permissions first (no prompt - already requested at startup)
+    if (!hasAccessibilityPermissions()) {
         NSLog(@"Cannot start monitoring without accessibility permissions");
     }
     
@@ -156,8 +156,8 @@ static void stopMonitoring(void) {
 static void startEscapeMonitoring(void) {
     gEscapeEnabled = YES;  // Always enable first, even if monitors already exist
     
-    // Check accessibility permissions
-    if (!checkAccessibilityPermissions()) {
+    // Check accessibility permissions (no prompt - already requested at startup)
+    if (!hasAccessibilityPermissions()) {
         NSLog(@"WARNING: Cannot monitor escape key without accessibility permissions!");
     }
     
