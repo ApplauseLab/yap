@@ -87,6 +87,9 @@ jobs:
           install_name_tool -change "/opt/homebrew/opt/portaudio/lib/libportaudio.2.dylib" \
             "@executable_path/../Frameworks/libportaudio.2.dylib" \
             build/bin/Yap.app/Contents/MacOS/Yap
+          
+          # Re-sign the app (ad-hoc) since install_name_tool invalidates the signature
+          codesign --force --deep --sign - build/bin/Yap.app
 
       - name: Create DMG
         run: |
