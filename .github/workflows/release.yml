@@ -75,6 +75,19 @@ jobs:
         run: |
           wails build -platform darwin/arm64 -o "Yap"
 
+      - name: Bundle PortAudio in app
+        run: |
+          # Create Frameworks directory in app bundle
+          mkdir -p build/bin/Yap.app/Contents/Frameworks
+          
+          # Copy PortAudio dylib
+          cp /opt/homebrew/lib/libportaudio.2.dylib build/bin/Yap.app/Contents/Frameworks/
+          
+          # Fix library path in binary to look inside the app bundle
+          install_name_tool -change "/opt/homebrew/opt/portaudio/lib/libportaudio.2.dylib" \
+            "@executable_path/../Frameworks/libportaudio.2.dylib" \
+            build/bin/Yap.app/Contents/MacOS/Yap
+
       - name: Create DMG
         run: |
           create-dmg \
