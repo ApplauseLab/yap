@@ -9,6 +9,7 @@ package system
 #include <ApplicationServices/ApplicationServices.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
+#include <os/lock.h>
 #include <unistd.h>
 
 #pragma clang diagnostic push
@@ -22,16 +23,32 @@ int hasAccessibilityForPaste(void) {
     return trusted ? 1 : 0;
 }
 
-// Store the previous frontmost app (before our overlay appears)
+// Store the previous frontmost app (before our overlay appears).
+// This file is compiled without ARC, so the reference is retained manually
+// and guarded because recording can start from several goroutines.
 static NSRunningApplication *gPreviousFrontApp = nil;
+static os_unfair_lock gPreviousFrontAppLock = OS_UNFAIR_LOCK_INIT;
 
 // Save the current frontmost app (call before showing overlay)
 void saveFrontmostApp(void) {
     NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
     if (frontApp && ![frontApp.bundleIdentifier isEqualToString:@"com.wails.Yap"]) {
+        [frontApp retain];
+        os_unfair_lock_lock(&gPreviousFrontAppLock);
+        NSRunningApplication *old = gPreviousFrontApp;
         gPreviousFrontApp = frontApp;
+        os_unfair_lock_unlock(&gPreviousFrontAppLock);
+        [old release];
         NSLog(@"saveFrontmostApp: saved %@", frontApp.localizedName);
     }
+}
+
+// Returns a retained reference to the saved app (or nil); release it after use.
+static NSRunningApplication *copyPreviousFrontApp(void) {
+    os_unfair_lock_lock(&gPreviousFrontAppLock);
+    NSRunningApplication *app = [gPreviousFrontApp retain];
+    os_unfair_lock_unlock(&gPreviousFrontAppLock);
+    return app;
 }
 
 // Get the frontmost application name
@@ -42,9 +59,11 @@ NSString* getFrontmostAppName(void) {
 
 // Activate the previously saved app
 void activatePreviousApp(void) {
-    if (gPreviousFrontApp) {
-        NSLog(@"activatePreviousApp: activating %@", gPreviousFrontApp.localizedName);
-        [gPreviousFrontApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+    NSRunningApplication *previousApp = copyPreviousFrontApp();
+    if (previousApp) {
+        NSLog(@"activatePreviousApp: activating %@", previousApp.localizedName);
+        [previousApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+        [previousApp release];
     }
 }
 
@@ -60,9 +79,11 @@ int simulatePasteKeystroke(void) {
     }
 
     // Activate the previous app first (in case our app took focus)
-    if (gPreviousFrontApp) {
-        NSLog(@"simulatePasteKeystroke: activating previous app %@", gPreviousFrontApp.localizedName);
-        [gPreviousFrontApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+    NSRunningApplication *previousApp = copyPreviousFrontApp();
+    if (previousApp) {
+        NSLog(@"simulatePasteKeystroke: activating previous app %@", previousApp.localizedName);
+        [previousApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+        [previousApp release];
         usleep(100000); // 100ms for activation to complete
         NSLog(@"simulatePasteKeystroke: after activation, frontmost = %@", getFrontmostAppName());
     }
