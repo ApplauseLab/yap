@@ -92,6 +92,7 @@ type Callback func()
 
 // Manager handles global hotkey registration
 type Manager struct {
+	pressed        map[uint32]bool
 	mu             sync.Mutex
 	running        bool
 	hotkeyCode     uint32
@@ -131,27 +132,37 @@ func keyboardProc(nCode int32, wParam uintptr, lParam uintptr) uintptr {
 		if m != nil {
 			kbStruct := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 
-			// Handle both keydown and syskeydown (for Alt key)
-			if wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN {
-				// Check recording hotkey
-				if kbStruct.VkCode == m.hotkeyCode {
-					if m.hotkeyCallback != nil {
-						go m.hotkeyCallback()
-					}
-				}
-
-				// Check cancel key
-				if m.cancelEnabled && kbStruct.VkCode == m.cancelCode {
-					if m.cancelCallback != nil {
-						go m.cancelCallback()
-					}
-				}
-			}
+			m.handleKey(kbStruct.VkCode, wParam)
 		}
 	}
 
 	ret, _, _ := procCallNextHookEx.Call(0, uintptr(nCode), wParam, lParam)
 	return ret
+}
+
+func (m *Manager) handleKey(code uint32, message uintptr) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if message == WM_KEYUP || message == WM_SYSKEYUP {
+		delete(m.pressed, code)
+		return
+	}
+	if message != WM_KEYDOWN && message != WM_SYSKEYDOWN {
+		return
+	}
+	if m.pressed == nil {
+		m.pressed = make(map[uint32]bool)
+	}
+	if m.pressed[code] {
+		return
+	}
+	m.pressed[code] = true
+	if code == m.hotkeyCode && m.hotkeyCallback != nil {
+		go m.hotkeyCallback()
+	}
+	if m.cancelEnabled && code == m.cancelCode && m.cancelCallback != nil {
+		go m.cancelCallback()
+	}
 }
 
 // Register registers the global hotkey

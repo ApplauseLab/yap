@@ -29,6 +29,9 @@ func Init() error {
 		return err
 	}
 	defaultLogger = logger
+	if err := captureCrashes(logger.logsDir); err != nil {
+		logger.Warning(fmt.Sprintf("Cannot capture crash diagnostics: %v", err))
+	}
 	return nil
 }
 
@@ -94,7 +97,7 @@ func (l *FileLogger) write(level, message string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	line := fmt.Sprintf("[%s] [%s] %s\n", time.Now().Format("2006-01-02T15:04:05.000"), level, Redact(message))
+	line := fmt.Sprintf("[%s] [%s] [pid=%d] %s\n", time.Now().Format("2006-01-02T15:04:05.000"), level, os.Getpid(), Redact(message))
 	_, _ = l.writer.Write([]byte(line))
 }
 

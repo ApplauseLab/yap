@@ -80,6 +80,7 @@ type UsageStats struct {
 
 // App struct
 type App struct {
+	recordingMu   sync.Mutex // Serialize hotkey/UI start, stop and cancel transitions.
 	startupDone   chan struct{}
 	startupErr    error // Published by closing startupDone.
 	ctx           context.Context
@@ -503,6 +504,8 @@ func (a *App) ToggleRecording() error {
 
 // StartRecording begins audio capture
 func (a *App) StartRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	runtime.LogInfo(a.ctx, "StartRecording called")
 	runtime.LogDebug(a.ctx, "StartRecording: entering function")
 	if err := a.validateReadyToRecord(); err != nil {
@@ -552,7 +555,9 @@ func (a *App) StartRecording() error {
 	a.emitState()
 
 	// Create fresh recorder for each recording session
+	a.mu.Lock()
 	a.recorder = audio.NewRecorder()
+	a.mu.Unlock()
 
 	// Set audio device from config if available
 	if a.configManager != nil {
@@ -589,6 +594,8 @@ func (a *App) StartRecording() error {
 
 // StopRecording ends audio capture and starts transcription
 func (a *App) StopRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	a.mu.Lock()
 	if a.state != StateRecording {
 		a.mu.Unlock()
@@ -608,6 +615,7 @@ func (a *App) StopRecording() error {
 	a.emitState()
 
 	samples, err := a.recorder.Stop()
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Audio capture stopped: samples=%d error=%v", len(samples), err))
 	if err != nil {
 		a.mu.Lock()
 		a.state = StateError
@@ -625,6 +633,8 @@ func (a *App) StopRecording() error {
 
 // CancelRecording stops recording without transcribing
 func (a *App) CancelRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	a.mu.Lock()
 	if a.state != StateRecording {
 		a.mu.Unlock()

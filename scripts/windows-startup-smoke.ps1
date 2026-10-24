@@ -6,6 +6,7 @@ $root = Join-Path $env:RUNNER_TEMP "yap-startup-smoke"
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $env:APPDATA = Join-Path $root "appdata"
 $app = $null
+$second = $null
 try {
     # A clean first launch, like a new install before model download.
     $app = Start-Process -FilePath $AppPath -PassThru `
@@ -33,8 +34,14 @@ try {
     if ($text -match "nil pointer|process message error|Invalid JSON passed to callback") {
         throw "frontend binding failure after startup"
     }
+    $second = Start-Process -FilePath $AppPath -PassThru
+    if (-not $second.WaitForExit(10000)) { throw "Second launch stayed alive instead of handing off" }
+    if ($second.ExitCode -ne 0 -or $app.HasExited) { throw "Single-instance handoff failed" }
+    $text = ($logs | Get-Content) -join "`n"
+    if ($text -notmatch "Second launch received") { throw "Existing instance did not receive the launch" }
     Write-Host "Installed Yap.exe completed backend/frontend startup and remained alive."
 } finally {
+    if ($null -ne $second -and -not $second.HasExited) { Stop-Process -Id $second.Id -Force }
     if ($null -ne $app -and -not $app.HasExited) {
         Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
         $app.WaitForExit()

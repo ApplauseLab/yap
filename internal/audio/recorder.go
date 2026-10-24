@@ -25,9 +25,18 @@ type AudioInputDevice struct {
 	IsDefault bool   `json:"isDefault"`
 }
 
+type recordingStream interface {
+	Start() error
+	Stop() error
+	Close() error
+	Read() error
+}
+
 // Recorder handles audio capture from microphone
 type Recorder struct {
-	stream        *portaudio.Stream
+	lifecycleMu   sync.Mutex // Serialize stream start/stop, including native cleanup.
+	readDone      chan struct{}
+	stream        recordingStream
 	buffer        []float32
 	mu            sync.Mutex
 	isRecording   bool
@@ -41,7 +50,8 @@ type Recorder struct {
 // NewRecorder creates a new audio recorder
 func NewRecorder() *Recorder {
 	return &Recorder{
-		buffer: make([]float32, 0),
+		readDone: make(chan struct{}),
+		buffer:   make([]float32, 0),
 	}
 }
 
@@ -130,6 +140,8 @@ func findDeviceByName(name string) (*portaudio.DeviceInfo, error) {
 
 // Start begins recording audio from the configured microphone
 func (r *Recorder) Start() error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -186,15 +198,18 @@ func (r *Recorder) Start() error {
 	// Initialize level channels
 	r.levelChan = make(chan float32, 1) // Buffered, drop old values
 	r.stopLevelChan = make(chan struct{})
+	r.readDone = make(chan struct{})
 
 	// Start the stream
 	if err := stream.Start(); err != nil {
 		r.isRecording = false
+		_ = stream.Close()
+		r.stream = nil
 		return fmt.Errorf("failed to start stream: %w", err)
 	}
 
 	// Start a goroutine to process level updates (prevents goroutine accumulation)
-	go r.levelLoop()
+	go r.levelLoop(r.stopLevelChan, r.levelChan)
 
 	// Start a goroutine to read audio data
 	go r.readLoop(inputBuffer)
@@ -203,7 +218,7 @@ func (r *Recorder) Start() error {
 }
 
 // levelLoop processes audio level updates at a controlled rate
-func (r *Recorder) levelLoop() {
+func (r *Recorder) levelLoop(stop <-chan struct{}, levels <-chan float32) {
 	ticker := time.NewTicker(33 * time.Millisecond) // ~30fps
 	defer ticker.Stop()
 
@@ -211,9 +226,9 @@ func (r *Recorder) levelLoop() {
 
 	for {
 		select {
-		case <-r.stopLevelChan:
+		case <-stop:
 			return
-		case level := <-r.levelChan:
+		case level := <-levels:
 			lastLevel = level
 		case <-ticker.C:
 			r.mu.Lock()
@@ -228,6 +243,7 @@ func (r *Recorder) levelLoop() {
 
 // readLoop continuously reads audio data from the stream
 func (r *Recorder) readLoop(inputBuffer []float32) {
+	defer close(r.readDone)
 	for {
 		r.mu.Lock()
 		if !r.isRecording {
@@ -285,6 +301,8 @@ func (r *Recorder) readLoop(inputBuffer []float32) {
 
 // Stop ends recording and returns the recorded audio as float32 samples
 func (r *Recorder) Stop() ([]float32, error) {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
 
 	if !r.isRecording {
@@ -323,6 +341,9 @@ func (r *Recorder) Stop() ([]float32, error) {
 	// Stop and close PortAudio stream outside lock
 	if stream != nil {
 		stream.Stop()
+		// Stop interrupts blocking reads, but the Go reader can still be
+		// returning from Pa_ReadStream. Never free its native stream early.
+		<-r.readDone
 		stream.Close()
 	}
 
