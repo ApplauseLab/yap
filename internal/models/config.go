@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"yap/internal/paths"
 )
 
 // Config holds application settings
@@ -77,13 +79,11 @@ type ConfigManager struct {
 
 // NewConfigManager creates a new config manager
 func NewConfigManager() (*ConfigManager, error) {
-	// Get user config directory
-	configDir, err := os.UserConfigDir()
+	appConfigDir, err := paths.AppDataDir()
 	if err != nil {
 		return nil, err
 	}
 
-	appConfigDir := filepath.Join(configDir, "yap")
 	if err := os.MkdirAll(appConfigDir, 0755); err != nil {
 		return nil, err
 	}
