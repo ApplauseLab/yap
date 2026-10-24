@@ -4,6 +4,7 @@ import appIcon from './assets/appicon.png';
 import {
   GetModels,
   DownloadModel,
+  CancelModelDownload,
   SetModel,
   SetProvider,
   SetOpenAIKey,
@@ -17,21 +18,8 @@ import {
   GetPlatform,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
-
-interface ModelInfo {
-  name: string;
-  displayName: string;
-  size: string;
-  downloaded: boolean;
-  englishOnly: boolean;
-}
-
-interface DownloadProgress {
-  model: string;
-  downloaded: number;
-  total: number;
-  progress: number;
-}
+import { useModelDownload } from './useModelDownload';
+import { ModelInfo, errorMessage, formatBytes, isDownloadActive } from './modelTypes';
 
 interface AppState {
   state: string;
@@ -59,8 +47,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [selectedProvider, setSelectedProvider] = useState<Provider>('local');
   const [apiKey, setApiKey] = useState<string>('');
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const downloadState = useModelDownload();
+  const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
+  // The model this onboarding session asked to download. Only its successful
+  // completion activates a model and advances the flow.
+  const awaitingModelRef = useRef<string | null>(null);
   const [micPermissionStatus, setMicPermissionStatus] = useState<string>('undetermined');
   const [accessibilityStatus, setAccessibilityStatus] = useState<string>('undetermined');
   const [hotkeyName, setHotkeyName] = useState<string>('Right Option');
@@ -90,44 +81,45 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     GetPlatform().then((p: string) => {
       setPlatform(p);
     });
-
-    // Set up event listeners for download progress
-    const progressHandler = (progress: DownloadProgress) => {
-      setDownloadProgress(progress);
-      setDownloadError(null);
-    };
-
-    const completeHandler = async (data: { model: string }) => {
-      setDownloadProgress(null);
-      try {
-        await SetModel(data.model);
-      } catch (err) {
-        setDownloadError(String(err));
-        return;
-      }
-      // Refresh models list
-      GetModels().then((modelList: ModelInfo[]) => {
-        setModels(modelList);
-      });
-      // Move to mic permission request step
-      setStep('micRequest');
-    };
-
-    const errorHandler = (data: { model: string; error: string }) => {
-      setDownloadProgress(null);
-      setDownloadError(data.error);
-    };
-
-    const cleanupProgress = EventsOn('downloadProgress', progressHandler);
-    const cleanupComplete = EventsOn('downloadComplete', completeHandler);
-    const cleanupError = EventsOn('downloadError', errorHandler);
-
-    return () => {
-      cleanupProgress();
-      cleanupComplete();
-      cleanupError();
-    };
   }, []);
+
+  useEffect(() => {
+    const awaiting = awaitingModelRef.current;
+    if (!awaiting || downloadState.model !== awaiting || downloadState.status !== 'completed') return;
+    awaitingModelRef.current = null;
+    SetModel(awaiting)
+      .then(() => {
+        GetModels().then((modelList: ModelInfo[]) => setModels(modelList));
+        setStep('micRequest');
+      })
+      .catch((err) => {
+        LogError(`[frontend] Activating downloaded model failed: ${err}`);
+        setDownloadStartError(errorMessage(err));
+      });
+  }, [downloadState.model, downloadState.status]);
+
+  const startSelectedDownload = useCallback(async () => {
+    setDownloadStartError(null);
+    awaitingModelRef.current = selectedModel;
+    try {
+      await DownloadModel(selectedModel);
+    } catch (err) {
+      // Already downloading this exact model (e.g. after a remount): keep waiting.
+      if (isDownloadActive(downloadState) && downloadState.model === selectedModel) return;
+      awaitingModelRef.current = null;
+      setDownloadStartError(errorMessage(err));
+    }
+  }, [selectedModel, downloadState]);
+
+  const handleCancelDownload = useCallback(async () => {
+    awaitingModelRef.current = null;
+    try {
+      await CancelModelDownload(selectedModel);
+    } catch (err) {
+      LogError(`[frontend] Cancel onboarding download failed: ${err}`);
+    }
+    setStep('model');
+  }, [selectedModel]);
 
   const handleProviderSelect = useCallback(async () => {
     await SetProvider(selectedProvider);
@@ -159,17 +151,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       // Model already downloaded, skip to mic permission request
       setStep('micRequest');
     } else {
-      // Start download
       setStep('download');
-      setDownloadError(null);
-      await DownloadModel(selectedModel);
+      await startSelectedDownload();
     }
-  }, [selectedModel, models]);
-
-  const handleRetryDownload = useCallback(async () => {
-    setDownloadError(null);
-    await DownloadModel(selectedModel);
-  }, [selectedModel]);
+  }, [selectedModel, models, startSelectedDownload]);
 
   const handleCheckMicPermission = useCallback(async () => {
     const status = await CheckMicrophonePermission();
@@ -446,7 +431,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const renderDownload = () => {
     const model = models.find(m => m.name === selectedModel);
+    const matching = downloadState.model === selectedModel;
+    const downloadProgress = matching && isDownloadActive(downloadState) ? downloadState : null;
     const progress = downloadProgress?.progress || 0;
+    const downloadError = downloadStartError
+      || (matching && downloadState.status === 'failed' ? downloadState.error : null)
+      || (matching && downloadState.status === 'cancelled' ? 'The download was cancelled.' : null);
     
     return (
       <div className="onboarding-step download-step">
@@ -495,7 +485,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           ) : downloadProgress ? (
             <>
               <h2 className="download-title">Downloading {model?.displayName}</h2>
-              <p className="download-subtitle">A local model is required before Yap can transcribe offline. {model?.size} - {progress.toFixed(0)}%</p>
+              <p className="download-subtitle">A local model is required before Yap can transcribe offline. {formatBytes(downloadProgress.downloaded)} of {formatBytes(downloadProgress.total || model?.sizeBytes || 0)} - {progress.toFixed(0)}%</p>
             </>
           ) : (
             <>
@@ -511,10 +501,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <button className="secondary-button" onClick={() => setStep('model')}>
                 Back
               </button>
-              <button className="primary-button" onClick={handleRetryDownload}>
+              <button className="primary-button" onClick={startSelectedDownload}>
                 Retry Download
               </button>
             </>
+          ) : downloadProgress ? (
+            <button className="secondary-button" onClick={handleCancelDownload} disabled={downloadProgress.status === 'cancelling'}>
+              Cancel
+            </button>
           ) : null}
         </div>
       </div>

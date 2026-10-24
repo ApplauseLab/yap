@@ -64,11 +64,11 @@ tmux attach -t yap
 - **OpenAI**: Uses OpenAI Whisper API (requires API key)
 
 ### Models (Local)
-- tiny.en (~75MB) - Fastest
-- base.en (~150MB) - Default, good balance
-- small.en (~500MB) - Better accuracy
-- medium.en (~1.5GB) - High accuracy
-- large-v3 (~3GB) - Best accuracy
+Supported models, their sizes, and their speed and accuracy ratings are defined
+in one catalog in `internal/models/catalog.go`. Users browse, download, activate,
+and delete them on the **Models** page. Only one download runs at a time.
+Downloading a model never activates it. The one exception is onboarding, which
+activates the model the user picked there.
 
 ## Building
 
@@ -78,6 +78,24 @@ wails dev
 
 # Production build
 wails build
+```
+
+## Testing
+
+```bash
+go test ./...
+cd frontend && npm test
+```
+
+### Isolated development data
+
+Set `YAP_CONFIG_DIR` to keep config, models, history, and logs out of the
+installed app's data directory. Set `YAP_MODEL_BASE_URL` to download models from
+a local mirror, e.g. to exercise failed or truncated downloads:
+
+```bash
+YAP_CONFIG_DIR=/tmp/yap-dev YAP_MODEL_BASE_URL=http://127.0.0.1:34199 \
+  wails dev -devserver localhost:34135
 ```
 
 ## Requirements

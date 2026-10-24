@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
 import { Onboarding } from './Onboarding';
+import { ModelsLibrary } from './ModelsLibrary';
+import { useModelDownload } from './useModelDownload';
+import { ModelInfo, errorMessage, formatBytes, isDownloadActive, isTerminal } from './modelTypes';
 import packageJson from '../package.json';
 // Sound playback is now handled natively in Go (internal/sounds)
 import {
@@ -13,6 +16,8 @@ import {
   SetProvider,
   SetOpenAIKey,
   DownloadModel,
+  CancelModelDownload,
+  DeleteModel,
   GetConfig,
   SetAutoPaste,
   SetSoundEnabled,
@@ -49,14 +54,6 @@ interface AppState {
   hotkeyEnabled: boolean;
 }
 
-interface ModelInfo {
-  name: string;
-  displayName: string;
-  size: string;
-  downloaded: boolean;
-  englishOnly: boolean;
-}
-
 interface Config {
   provider: string;
   model: string;
@@ -75,13 +72,6 @@ interface HistoryItem {
   hasAudio: boolean;
 }
 
-interface DownloadProgress {
-  model: string;
-  downloaded: number;
-  total: number;
-  progress: number;
-}
-
 interface AudioInputDevice {
   name: string;
   isDefault: boolean;
@@ -96,7 +86,7 @@ interface UsageStats {
   totalWords: number;
 }
 
-type Page = 'home' | 'settings' | 'history';
+type Page = 'home' | 'models' | 'settings' | 'history';
 type AccessibilityRecoveryState = 'checking' | 'needed' | 'recovering' | 'error' | 'complete' | 'not-needed';
 
 function App() {
@@ -120,7 +110,9 @@ function App() {
   const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [apiKey, setApiKey] = useState('');
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const downloadState = useModelDownload();
+  const [focusModel, setFocusModel] = useState<string | null>(null);
+  const [homeDownloadError, setHomeDownloadError] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
@@ -279,23 +271,24 @@ function App() {
       // Refresh stats when history changes (new transcription)
       GetStats().then((s: UsageStats) => setStats(s));
     }));
-    unsubscribers.push(EventsOn('downloadProgress', (progress: DownloadProgress) => setDownloadProgress(progress)));
-    unsubscribers.push(EventsOn('downloadComplete', async (data: { model: string }) => {
-      setDownloadProgress(null);
-      try {
-        await SetModel(data.model);
-      } catch (err) {
-        LogError(`[frontend] SetModel after download failed: ${err}`);
-      }
-      GetModels().then((models: ModelInfo[]) => setModels(models));
-      GetState().then((state: AppState) => setAppState(state));
-    }));
-    unsubscribers.push(EventsOn('downloadError', (data: { model: string; error: string }) => {
-      setDownloadProgress(null);
-      alert(`Download failed: ${data.error}`);
-    }));
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
+
+  const refreshModels = useCallback(() => {
+    GetModels().then((m: ModelInfo[]) => setModels(m));
+  }, []);
+
+  const refreshAppState = useCallback(() => {
+    GetState().then((s: AppState) => setAppState(s));
+  }, []);
+
+  // Download completion only refreshes availability; activation is always an
+  // explicit user action (or Onboarding's own selected model).
+  useEffect(() => {
+    if (!isTerminal(downloadState)) return;
+    refreshModels();
+    refreshAppState();
+  }, [downloadState.status, downloadState.model, refreshModels, refreshAppState]);
 
   useEffect(() => {
     let interval: number | undefined;
@@ -431,24 +424,46 @@ function App() {
     }
   }, [audioContext, audioSource]);
 
-  const handleModelChange = useCallback(async (model: string) => {
-    const modelInfo = models.find(m => m.name === model);
-    if (modelInfo?.downloaded) {
-      await SetModel(model);
-      GetState().then((s: AppState) => setAppState(s));
-    } else {
-      await DownloadModel(model);
+  const handleDownloadModel = useCallback(async (model: string) => {
+    await DownloadModel(model);
+  }, []);
+
+  const handleCancelDownload = useCallback(async (model: string) => {
+    await CancelModelDownload(model);
+  }, []);
+
+  const handleUseModel = useCallback(async (model: string) => {
+    await SetModel(model);
+    refreshModels();
+    refreshAppState();
+  }, [refreshModels, refreshAppState]);
+
+  const handleDeleteModel = useCallback(async (model: string) => {
+    try {
+      await DeleteModel(model);
+    } finally {
+      refreshModels();
+      refreshAppState();
     }
-    GetModels().then((m: ModelInfo[]) => setModels(m));
-  }, [models]);
+  }, [refreshModels, refreshAppState]);
+
+  const openModelsLibrary = useCallback((focus?: string) => {
+    setFocusModel(focus ?? null);
+    setCurrentPage('models');
+  }, []);
+
+  const handleHomeDownload = useCallback(async (model: string) => {
+    setHomeDownloadError('');
+    try {
+      await DownloadModel(model);
+    } catch (err) {
+      setHomeDownloadError(errorMessage(err));
+    }
+  }, []);
 
   const handleProviderChange = useCallback(async (provider: string) => {
     await SetProvider(provider);
     GetState().then((s: AppState) => setAppState(s));
-  }, []);
-
-  const handleDownloadModel = useCallback(async (model: string) => {
-    await DownloadModel(model);
   }, []);
 
   const handleSaveApiKey = useCallback(async () => {
@@ -649,6 +664,10 @@ function App() {
 
   const currentModel = models.find(m => m.name === appState.currentModel);
   const needsDownload = appState.currentProvider === 'local' && currentModel && !currentModel.downloaded;
+  const downloadActive = isDownloadActive(downloadState);
+  const downloadingModel = models.find(m => m.name === downloadState.model);
+  const currentModelFailed = downloadState.model === appState.currentModel && downloadState.status === 'failed';
+  const currentModelCancelled = downloadState.model === appState.currentModel && downloadState.status === 'cancelled';
 
   const handleOnboardingComplete = useCallback(() => {
     setShowOnboarding(false);
@@ -757,6 +776,19 @@ function App() {
             <span>Home</span>
           </button>
 
+          <button
+            className={`nav-item ${currentPage === 'models' ? 'active' : ''}`}
+            onClick={() => openModelsLibrary()}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+              <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+            <span>Models</span>
+            {downloadActive && <span className="badge" aria-label="Download in progress">{downloadState.progress.toFixed(0)}%</span>}
+          </button>
+
           <button 
             className={`nav-item ${currentPage === 'settings' ? 'active' : ''}`}
             onClick={() => setCurrentPage('settings')}
@@ -793,7 +825,7 @@ function App() {
         {/* Draggable header area */}
         <div className="main-header" style={{ '--wails-draggable': 'drag' } as React.CSSProperties}>
           <span className="page-title">
-            {currentPage === 'home' ? 'Home' : currentPage === 'settings' ? 'Settings' : 'History'}
+            {currentPage === 'home' ? 'Home' : currentPage === 'models' ? 'Models' : currentPage === 'settings' ? 'Settings' : 'History'}
           </span>
         </div>
 
@@ -820,16 +852,33 @@ function App() {
             </div>
 
             {/* Download prompt if needed */}
-            {needsDownload && !downloadProgress && (
+            {needsDownload && !(downloadActive && downloadState.model === appState.currentModel) && (
               <div className="download-prompt home-download">
-                <p>Model "{currentModel?.displayName}" needs to be downloaded</p>
-                <button onClick={() => handleDownloadModel(appState.currentModel)}>
-                  Download ({currentModel?.size})
-                </button>
+                <p>
+                  {currentModelFailed
+                    ? `Downloading "${currentModel?.displayName}" failed.`
+                    : currentModelCancelled
+                      ? `Download of "${currentModel?.displayName}" was cancelled.`
+                      : `Model "${currentModel?.displayName}" needs to be downloaded`}
+                </p>
+                {currentModelFailed && <p className="download-prompt-error">{downloadState.error}</p>}
+                {homeDownloadError && <p className="download-prompt-error">{homeDownloadError}</p>}
+                <div className="download-prompt-actions">
+                  <button
+                    onClick={() => handleHomeDownload(appState.currentModel)}
+                    disabled={downloadActive}
+                    title={downloadActive ? 'Another model is downloading' : undefined}
+                  >
+                    {currentModelFailed || currentModelCancelled ? 'Retry download' : `Download (${currentModel?.size})`}
+                  </button>
+                  <button className="link-button" onClick={() => openModelsLibrary(appState.currentModel)}>
+                    Browse models
+                  </button>
+                </div>
               </div>
             )}
 
-            {downloadProgress && (
+            {downloadActive && (
               <div className="download-progress">
                 <div className="download-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -838,12 +887,28 @@ function App() {
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
                 </div>
-                <p>Downloading {currentModel?.displayName || downloadProgress.model}</p>
-                <div className="download-subtitle">{currentModel?.size}</div>
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${downloadProgress.progress}%` }} />
+                <p>
+                  {downloadState.status === 'cancelling' ? 'Cancelling' : 'Downloading'} {downloadingModel?.displayName || downloadState.model}
+                </p>
+                <div className="download-subtitle">
+                  {formatBytes(downloadState.downloaded)} of {formatBytes(downloadState.total || downloadingModel?.sizeBytes || 0)}
                 </div>
-                <span>{downloadProgress.progress.toFixed(0)}%</span>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${downloadState.progress}%` }} />
+                </div>
+                <span>{downloadState.progress.toFixed(0)}%</span>
+                <div className="download-progress-actions">
+                  <button className="link-button" onClick={() => openModelsLibrary(downloadState.model)}>
+                    View in Models
+                  </button>
+                  <button
+                    className="link-button"
+                    disabled={downloadState.status === 'cancelling'}
+                    onClick={() => handleCancelDownload(downloadState.model).catch((err) => LogError(`[frontend] Cancel download failed: ${err}`))}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 
@@ -879,7 +944,21 @@ function App() {
                   </div>
                   <div className="action-content">
                     <span className="action-title">Settings</span>
-                    <span className="action-desc">Configure model, audio device, and more</span>
+                    <span className="action-desc">Configure provider, audio device, hotkeys, and more</span>
+                  </div>
+                </div>
+
+                <div className="action-item" onClick={() => openModelsLibrary()}>
+                  <div className="action-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                      <line x1="12" y1="22.08" x2="12" y2="12"/>
+                    </svg>
+                  </div>
+                  <div className="action-content">
+                    <span className="action-title">Browse models</span>
+                    <span className="action-desc">Compare, download, and switch transcription models</span>
                   </div>
                 </div>
 
@@ -940,6 +1019,20 @@ function App() {
           </div>
         )}
 
+        {currentPage === 'models' && (
+          <ModelsLibrary
+            models={models}
+            activeModel={appState.currentModel}
+            provider={appState.currentProvider}
+            downloadState={downloadState}
+            focusModel={focusModel}
+            onDownload={handleDownloadModel}
+            onCancel={handleCancelDownload}
+            onUse={handleUseModel}
+            onDelete={handleDeleteModel}
+          />
+        )}
+
         {currentPage === 'settings' && (
           <div className="settings-page">
 
@@ -967,22 +1060,36 @@ function App() {
                 </div>
               </div>
 
-              <div className="setting-row">
-                <div className="setting-info">
-                  <label>Model</label>
-                  <p>Larger models are more accurate but slower</p>
+              {appState.currentProvider === 'local' ? (
+                <div className="setting-row">
+                  <div className="setting-info">
+                    <label>Model</label>
+                    <p>Larger models are more accurate but slower</p>
+                  </div>
+                  <div className="model-summary">
+                    <div className="model-summary-text">
+                      <strong>{currentModel?.displayName || appState.currentModel}</strong>
+                      {currentModel
+                        ? `${currentModel.size} · ${currentModel.englishOnly ? 'English only' : 'Multilingual'} · ${
+                            downloadActive && downloadState.model === currentModel.name
+                              ? `Downloading ${downloadState.progress.toFixed(0)}%`
+                              : currentModel.downloaded ? 'Downloaded' : 'Not downloaded'
+                          }`
+                        : ''}
+                    </div>
+                    <button className="link-button" onClick={() => openModelsLibrary(appState.currentModel)}>
+                      Browse Models
+                    </button>
+                  </div>
                 </div>
-                <select 
-                  value={appState.currentModel}
-                  onChange={(e) => handleModelChange(e.target.value)}
-                >
-                  {models.map(m => (
-                    <option key={m.name} value={m.name}>
-                      {m.displayName} ({m.size}) {m.downloaded ? '✓' : '↓'}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              ) : (
+                <div className="setting-row">
+                  <div className="setting-info">
+                    <label>Model</label>
+                    <p>OpenAI transcribes with its hosted Whisper model, so local models are not used.</p>
+                  </div>
+                </div>
+              )}
 
               {appState.currentProvider === 'openai' && (
                 <div className="setting-row">
