@@ -567,6 +567,7 @@ func (a *App) StartRecording() error {
 		}
 	}
 
+	a.recorder.SetLevelCallback(a.overlay.SetAudioLevel)
 	if err := a.recorder.Start(); err != nil {
 		a.mu.Lock()
 		a.state = StateError
