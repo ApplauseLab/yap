@@ -160,8 +160,11 @@ func TestIllegalInstructionExitIsExplained(t *testing.T) {
 		crash = exec.Command("sh", "-c", "kill -ILL $$")
 	}
 	err := crash.Run()
-	if !isIllegalInstructionExit(err) || !strings.Contains(illegalInstructionHint(err), "AVX2") {
+	if !isIllegalInstructionExit(err) {
 		t.Fatalf("illegal instruction exit not recognised: %v", err)
+	}
+	if got := strings.Contains(illegalInstructionHint(err), "AVX2"); got != (runtime.GOARCH == "amd64") {
+		t.Fatalf("incorrect CPU hint for %s: %q", runtime.GOARCH, illegalInstructionHint(err))
 	}
 
 	failure := exec.Command(os.Args[0])

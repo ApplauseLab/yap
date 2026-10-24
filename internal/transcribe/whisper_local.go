@@ -554,7 +554,7 @@ func (e *LocalEngine) commandError(prefix string, err error, output []byte, whis
 // illegalInstructionHint explains crashes of the bundled x86-64 whisper.cpp
 // runtime, which is built for an AVX2 (x86-64-v3) baseline.
 func illegalInstructionHint(err error) string {
-	if !isIllegalInstructionExit(err) {
+	if runtime.GOARCH != "amd64" || !isIllegalInstructionExit(err) {
 		return ""
 	}
 	return " (illegal instruction: this CPU likely lacks AVX2, which the bundled whisper.cpp runtime requires)"

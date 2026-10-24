@@ -101,7 +101,7 @@ func isWhisperServerProcess(pid int) bool {
 		return false
 	}
 	name := strings.ToLower(filepath.Base(windows.UTF16ToString(buf[:size])))
-	return strings.Contains(name, "whisper-server")
+	return name == "whisper-server.exe"
 }
 
 func isIllegalInstructionExit(err error) bool {

@@ -67,6 +67,7 @@ func TestLocalEngineLeavesNoWorkerOrTempFiles(t *testing.T) {
 	t.Setenv("TEMP", tempDir)
 
 	engine := NewLocalEngine(os.Getenv("YAP_TEST_WHISPER_MODELS_DIR"))
+	t.Cleanup(func() { _ = engine.Close() })
 	if model := Model(os.Getenv("YAP_TEST_WHISPER_MODEL")); model != "" {
 		engine.SetModel(model)
 	}

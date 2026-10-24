@@ -118,8 +118,8 @@ func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
 
 	engine := NewLocalEngine(modelsDir)
 	engine.ReapOrphanedWorker()
-	if _, err := os.Stat(engine.workerPIDPath()); !os.IsNotExist(err) {
-		t.Fatalf("stale pid file not removed: %v", err)
+	if records, err := filepath.Glob(filepath.Join(modelsDir, workerPIDFileGlob)); err != nil || len(records) != 0 {
+		t.Fatalf("stale owner records not removed: %v (%v)", records, err)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestReapOrphanedWorkerOnWindows(t *testing.T) {
 
 	t.Run("unrelated process", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		unrelated := startRoleProcess(t, copyTestBinary(t, tmpDir, "other-tool"), "sleep")
+		unrelated := startRoleProcess(t, copyTestBinary(t, tmpDir, "not-whisper-server"), "sleep")
 		engine := NewLocalEngine(tmpDir)
 		writeRecord(engine, unrelated.Process.Pid, exitedPID(t))
 		engine.ReapOrphanedWorker()
