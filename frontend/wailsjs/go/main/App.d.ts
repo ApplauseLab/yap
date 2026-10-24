@@ -3,6 +3,8 @@
 import {main} from '../models';
 import {models} from '../models';
 
+export function CancelModelDownload(arg1:string):Promise<void>;
+
 export function CancelRecording():Promise<void>;
 
 export function CheckAccessibilityPermission():Promise<boolean>;
@@ -14,6 +16,8 @@ export function ClearHistory():Promise<void>;
 export function CopyHistoryItem(arg1:string):Promise<void>;
 
 export function DeleteHistoryItem(arg1:string):Promise<void>;
+
+export function DeleteModel(arg1:string):Promise<void>;
 
 export function DownloadModel(arg1:string):Promise<void>;
 
@@ -32,6 +36,8 @@ export function GetCurrentAudioInputDevice():Promise<string>;
 export function GetHistory():Promise<Array<main.HistoryItem>>;
 
 export function GetLogsDir():Promise<string>;
+
+export function GetModelDownloadState():Promise<models.DownloadState>;
 
 export function GetModels():Promise<Array<main.ModelInfo>>;
 

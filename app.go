@@ -59,13 +59,19 @@ type HistoryItem struct {
 	HasAudio  bool    `json:"hasAudio"`
 }
 
-// ModelInfo for frontend
+// ModelInfo describes a catalog model and its local availability for the frontend.
 type ModelInfo struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-	Size        string `json:"size"`
-	Downloaded  bool   `json:"downloaded"`
-	EnglishOnly bool   `json:"englishOnly"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"displayName"`
+	Size           string `json:"size"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	Downloaded     bool   `json:"downloaded"`
+	EnglishOnly    bool   `json:"englishOnly"`
+	Provider       string `json:"provider"`
+	Speed          int    `json:"speed"`
+	Accuracy       int    `json:"accuracy"`
+	UseCase        string `json:"useCase"`
+	Recommendation string `json:"recommendation"`
 }
 
 // UsageStats for frontend
@@ -89,6 +95,7 @@ type App struct {
 	openaiEngine  *transcribe.OpenAIEngine
 	configManager *models.ConfigManager
 	modelManager  *models.Manager
+	downloader    *models.Downloader
 	statsManager  *models.StatsManager
 	hotkeyManager *hotkey.Manager
 	overlay       *overlay.Overlay
@@ -180,6 +187,9 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.modelManager = modelManager
+	a.downloader = models.NewDownloader(modelManager, func(state models.DownloadState) {
+		runtime.EventsEmit(a.ctx, "modelDownloadState", state)
+	}, a.onModelDownloadFinished)
 
 	// Initialize transcription engines
 	a.localEngine = transcribe.NewLocalEngine(configManager.GetModelsDir())
@@ -275,6 +285,9 @@ func (a *App) domReady(ctx context.Context) {
 // shutdown is called when the app closes
 func (a *App) shutdown(ctx context.Context) {
 	runtime.LogInfo(ctx, "OnShutdown: starting cleanup")
+	if a.downloader != nil {
+		a.downloader.Shutdown(5 * time.Second)
+	}
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Unregister()
 	}
@@ -840,29 +853,36 @@ func (a *App) emitState() {
 	}
 }
 
-// GetModels returns available models with download status
+// GetModels returns every catalog model with its download status
 func (a *App) GetModels() []ModelInfo {
 	if a.WaitForStartup() != nil {
 		return nil
 	}
-	available := transcribe.AvailableModels()
-	result := make([]ModelInfo, len(available))
-
-	for i, m := range available {
+	catalog := models.Catalog()
+	result := make([]ModelInfo, len(catalog))
+	for i, spec := range catalog {
 		result[i] = ModelInfo{
-			Name:        string(m.Name),
-			DisplayName: m.DisplayName,
-			Size:        m.Size,
-			Downloaded:  a.modelManager.IsModelDownloaded(string(m.Name)),
-			EnglishOnly: m.EnglishOnly,
+			Name:           spec.Name,
+			DisplayName:    spec.DisplayName,
+			Size:           spec.Size,
+			SizeBytes:      spec.SizeBytes,
+			Downloaded:     a.modelManager != nil && a.modelManager.IsModelDownloaded(spec.Name),
+			EnglishOnly:    spec.EnglishOnly,
+			Provider:       spec.Provider,
+			Speed:          spec.Speed,
+			Accuracy:       spec.Accuracy,
+			UseCase:        spec.UseCase,
+			Recommendation: spec.Recommendation,
 		}
 	}
-
 	return result
 }
 
-// SetModel changes the current model
+// SetModel activates a downloaded catalog model. It never downloads.
 func (a *App) SetModel(model string) error {
+	if _, err := models.RequireModel(model); err != nil {
+		return err
+	}
 	if a.configManager.Get().Provider == "local" && !a.modelManager.IsModelDownloaded(model) {
 		return fmt.Errorf("model %q is not downloaded", model)
 	}
@@ -888,7 +908,9 @@ func (a *App) SetProvider(provider string) error {
 	}
 	if provider == "local" {
 		a.localEngine.Open()
-		a.prewarmLocalEngine()
+		if a.modelManager != nil && a.modelManager.IsModelDownloaded(a.configManager.Get().Model) {
+			a.prewarmLocalEngine()
+		}
 	} else {
 		_ = a.localEngine.Close()
 	}
@@ -1127,34 +1149,63 @@ func (a *App) ReregisterHotkey() error {
 	return nil
 }
 
-// DownloadModel downloads a model
+// DownloadModel starts downloading a model in the background. It validates the
+// model and the single-download constraint synchronously, and never changes the
+// active model.
 func (a *App) DownloadModel(model string) error {
-	go func() {
-		defer crashlog.LogPanic("model download")
-		err := a.modelManager.DownloadModel(model, func(downloaded, total int64) {
-			progress := float64(downloaded) / float64(total) * 100
-			runtime.EventsEmit(a.ctx, "downloadProgress", map[string]interface{}{
-				"model":      model,
-				"downloaded": downloaded,
-				"total":      total,
-				"progress":   progress,
-			})
-		})
-
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "downloadError", map[string]interface{}{
-				"model": model,
-				"error": err.Error(),
-			})
-		} else {
-			runtime.EventsEmit(a.ctx, "downloadComplete", map[string]interface{}{
-				"model": model,
-			})
-			a.emitState()
-		}
-	}()
-
+	if a.downloader == nil {
+		return fmt.Errorf("model manager is not ready")
+	}
+	if err := a.downloader.Start(model); err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Model download rejected: model=%s error=%v", model, err))
+		return err
+	}
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Model download started: model=%s", model))
 	return nil
+}
+
+// GetModelDownloadState returns the current or most recent download state.
+func (a *App) GetModelDownloadState() models.DownloadState {
+	if a.WaitForStartup() != nil || a.downloader == nil {
+		return models.DownloadState{Status: models.DownloadIdle}
+	}
+	return a.downloader.State()
+}
+
+// CancelModelDownload cancels the active download if it matches model.
+func (a *App) CancelModelDownload(model string) error {
+	if a.downloader == nil {
+		return fmt.Errorf("model manager is not ready")
+	}
+	return a.downloader.Cancel(model)
+}
+
+// DeleteModel removes a downloaded model that is neither active nor downloading.
+func (a *App) DeleteModel(model string) error {
+	if a.downloader == nil || a.configManager == nil {
+		return fmt.Errorf("model manager is not ready")
+	}
+	if err := a.downloader.Delete(model, a.configManager.Get().Model); err != nil {
+		return err
+	}
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Model deleted: model=%s", model))
+	a.emitState()
+	return nil
+}
+
+func (a *App) onModelDownloadFinished(state models.DownloadState) {
+	if state.Status == models.DownloadFailed {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Model download failed: model=%s error=%s", state.Model, state.Error))
+	} else {
+		runtime.LogInfo(a.ctx, fmt.Sprintf("Model download finished: model=%s status=%s", state.Model, state.Status))
+	}
+	if state.Status == models.DownloadCompleted && a.configManager != nil {
+		config := a.configManager.Get()
+		if config.Provider == "local" && config.Model == state.Model {
+			a.prewarmLocalEngine()
+		}
+	}
+	a.emitState()
 }
 
 // IsModelDownloaded checks if a model is downloaded

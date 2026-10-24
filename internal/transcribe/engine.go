@@ -1,6 +1,10 @@
 package transcribe
 
-import "context"
+import (
+	"context"
+
+	"yap/internal/models"
+)
 
 // Provider identifies which transcription backend to use
 type Provider string
@@ -10,7 +14,8 @@ const (
 	ProviderOpenAI Provider = "openai" // OpenAI Whisper API
 )
 
-// Model identifies which Whisper model to use
+// Model identifies which Whisper model to use. Metadata for each model lives
+// in the canonical catalog in internal/models.
 type Model string
 
 const (
@@ -25,27 +30,14 @@ const (
 	ModelLargeV3  Model = "large-v3"
 )
 
-// ModelInfo contains metadata about a model
-type ModelInfo struct {
-	Name        Model  `json:"name"`
-	DisplayName string `json:"displayName"`
-	Size        string `json:"size"`
-	EnglishOnly bool   `json:"englishOnly"`
-}
-
-// AvailableModels returns all available models
-func AvailableModels() []ModelInfo {
-	return []ModelInfo{
-		{ModelTiny, "Tiny", "~75MB", false},
-		{ModelTinyEn, "Tiny (English)", "~75MB", true},
-		{ModelBase, "Base", "~150MB", false},
-		{ModelBaseEn, "Base (English)", "~150MB", true},
-		{ModelSmall, "Small", "~500MB", false},
-		{ModelSmallEn, "Small (English)", "~500MB", true},
-		{ModelMedium, "Medium", "~1.5GB", false},
-		{ModelMediumEn, "Medium (English)", "~1.5GB", true},
-		{ModelLargeV3, "Large V3", "~3GB", false},
+// KnownModels lists the typed identifiers of every catalog model.
+func KnownModels() []Model {
+	specs := models.Catalog()
+	out := make([]Model, len(specs))
+	for i, spec := range specs {
+		out[i] = Model(spec.Name)
 	}
+	return out
 }
 
 // Engine defines the interface for transcription backends

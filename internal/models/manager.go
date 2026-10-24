@@ -1,55 +1,41 @@
 package models
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
-const (
-	// BaseURL is the base URL for downloading models
-	BaseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+var (
+	ErrUnknownModel = errors.New("unknown model")
+	ErrSizeMismatch = errors.New("file size does not match the expected model size")
 )
-
-// ModelDownloadInfo contains download information for a model
-type ModelDownloadInfo struct {
-	Name     string `json:"name"`
-	Filename string `json:"filename"`
-	URL      string `json:"url"`
-	Size     int64  `json:"size"` // bytes
-}
-
-// AvailableModels returns download info for all available models
-func AvailableModels() []ModelDownloadInfo {
-	return []ModelDownloadInfo{
-		{"tiny", "ggml-tiny.bin", BaseURL + "/ggml-tiny.bin", 77691713},
-		{"tiny.en", "ggml-tiny.en.bin", BaseURL + "/ggml-tiny.en.bin", 77704715},
-		{"base", "ggml-base.bin", BaseURL + "/ggml-base.bin", 147951465},
-		{"base.en", "ggml-base.en.bin", BaseURL + "/ggml-base.en.bin", 147964211},
-		{"small", "ggml-small.bin", BaseURL + "/ggml-small.bin", 487601967},
-		{"small.en", "ggml-small.en.bin", BaseURL + "/ggml-small.en.bin", 487614499},
-		{"medium", "ggml-medium.bin", BaseURL + "/ggml-medium.bin", 1533763389},
-		{"medium.en", "ggml-medium.en.bin", BaseURL + "/ggml-medium.en.bin", 1533774781},
-		{"large-v3", "ggml-large-v3.bin", BaseURL + "/ggml-large-v3.bin", 3095033483},
-	}
-}
 
 // Manager handles model downloads and management
 type Manager struct {
 	modelsDir     string
+	baseURL       string
+	client        *http.Client
 	downloadLocks sync.Map // Model name -> *sync.Mutex; different models download independently.
 }
 
 // NewManager creates a new model manager
 func NewManager(modelsDir string) (*Manager, error) {
-	// Ensure models directory exists
 	if err := os.MkdirAll(modelsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create models directory: %w", err)
 	}
-	return &Manager{modelsDir: modelsDir}, nil
+	return &Manager{modelsDir: modelsDir, baseURL: defaultBaseURL()}, nil
+}
+
+// SetBaseURL changes where model files are downloaded from.
+func (m *Manager) SetBaseURL(baseURL string) {
+	m.baseURL = baseURL
 }
 
 // GetModelsDir returns the models directory path
@@ -57,143 +43,189 @@ func (m *Manager) GetModelsDir() string {
 	return m.modelsDir
 }
 
-// IsModelDownloaded checks if a model is already downloaded
+// ModelURL returns the download URL for a catalog model.
+func (m *Manager) ModelURL(spec ModelSpec) string {
+	return m.baseURL + "/" + spec.Filename
+}
+
+// IsModelDownloaded reports whether a catalog model exists on disk with its
+// exact expected size. Absent, truncated, or oversized files are unavailable.
 func (m *Manager) IsModelDownloaded(modelName string) bool {
-	filename := fmt.Sprintf("ggml-%s.bin", modelName)
-	path := filepath.Join(m.modelsDir, filename)
-	_, err := os.Stat(path)
-	return err == nil
+	spec, ok := LookupModel(modelName)
+	if !ok {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(m.modelsDir, spec.Filename))
+	return err == nil && info.Mode().IsRegular() && info.Size() == spec.SizeBytes
 }
 
 // GetModelPath returns the full path to a model file
 func (m *Manager) GetModelPath(modelName string) string {
-	filename := fmt.Sprintf("ggml-%s.bin", modelName)
-	return filepath.Join(m.modelsDir, filename)
+	if spec, ok := LookupModel(modelName); ok {
+		return filepath.Join(m.modelsDir, spec.Filename)
+	}
+	return filepath.Join(m.modelsDir, fmt.Sprintf("ggml-%s.bin", modelName))
 }
 
 // DownloadProgress is called during download with progress info
 type DownloadProgress func(downloaded, total int64)
 
-// DownloadModel downloads a model from HuggingFace
-func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) error {
-	// Find model info
-	var modelInfo *ModelDownloadInfo
-	for _, info := range AvailableModels() {
-		if info.Name == modelName {
-			modelInfo = &info
-			break
-		}
+func (m *Manager) httpClient() *http.Client {
+	if m.client != nil {
+		return m.client
 	}
-	if modelInfo == nil {
-		return fmt.Errorf("unknown model: %s", modelName)
+	return http.DefaultClient
+}
+
+// DownloadModel downloads a catalog model. The file is streamed to a unique
+// temporary path, size-verified, closed, and atomically renamed into place.
+// The temporary file is removed on failure or cancellation. Concurrent calls
+// for the same model share one transfer; different models are independent.
+func (m *Manager) DownloadModel(ctx context.Context, modelName string, progress DownloadProgress) (err error) {
+	spec, err := RequireModel(modelName)
+	if err != nil {
+		return err
 	}
 
-	// Repeated UI requests must not write or publish the same model at once.
 	// Waiters recheck the final file after the active download completes.
 	lock, _ := m.downloadLocks.LoadOrStore(modelName, &sync.Mutex{})
 	mu := lock.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Create target path
-	targetPath := filepath.Join(m.modelsDir, modelInfo.Filename)
-
-	// Check if already exists
-	if _, err := os.Stat(targetPath); err == nil {
-		return nil // Already downloaded
+	if m.IsModelDownloaded(modelName) {
+		if progress != nil {
+			progress(spec.SizeBytes, spec.SizeBytes)
+		}
+		return nil
 	}
 
-	// Create temp file
-	out, err := os.CreateTemp(m.modelsDir, modelInfo.Filename+"-*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	tmpPath := out.Name()
-	defer func() {
-		// Windows will not rename or remove a file while our write handle is
-		// open. Close before cleanup on every failure path as well.
-		_ = out.Close()
-		_ = os.Remove(tmpPath)
-	}()
+	targetPath := filepath.Join(m.modelsDir, spec.Filename)
 
-	// Download
-	resp, err := http.Get(modelInfo.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.ModelURL(spec), nil)
 	if err != nil {
-		return fmt.Errorf("failed to download: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := m.httpClient().Do(req)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("could not reach the download server: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("server returned HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength >= 0 && resp.ContentLength != spec.SizeBytes {
+		return fmt.Errorf("%w (server reported %d bytes, expected %d)", ErrSizeMismatch, resp.ContentLength, spec.SizeBytes)
 	}
 
-	// Get total size
-	total := resp.ContentLength
-	if total < 0 {
-		total = modelInfo.Size
+	out, err := os.CreateTemp(m.modelsDir, spec.Filename+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	tmpPath := out.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			out.Close()
+		}
+		if err != nil {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	total := spec.SizeBytes
+	if progress != nil {
+		progress(0, total)
 	}
 
-	// Copy with progress
 	var downloaded int64
-	buf := make([]byte, 32*1024) // 32KB buffer
+	buf := make([]byte, 64*1024)
 	for {
-		n, err := resp.Body.Read(buf)
+		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
 				return fmt.Errorf("failed to write: %w", writeErr)
 			}
 			downloaded += int64(n)
+			if downloaded > total {
+				return fmt.Errorf("%w (received more than %d bytes)", ErrSizeMismatch, total)
+			}
 			if progress != nil {
 				progress(downloaded, total)
 			}
 		}
-		if err == io.EOF {
+		if readErr == io.EOF {
 			break
 		}
-		if err != nil {
-			return fmt.Errorf("download error: %w", err)
+		if readErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return fmt.Errorf("connection interrupted: %w", readErr)
 		}
 	}
 
-	// Finish writing before publishing the model. A deferred Close alone
-	// runs too late: os.Rename fails with a sharing violation on Windows.
+	if downloaded != total {
+		return fmt.Errorf("%w (received %d bytes, expected %d)", ErrSizeMismatch, downloaded, total)
+	}
+	if err := out.Sync(); err != nil {
+		return fmt.Errorf("failed to flush download: %w", err)
+	}
+	// Close before publishing: Windows cannot rename a file with an open handle.
+	closed = true
 	if err := out.Close(); err != nil {
-		return fmt.Errorf("failed to close downloaded model: %w", err)
+		return fmt.Errorf("failed to close download: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := os.Rename(tmpPath, targetPath); err != nil {
 		return fmt.Errorf("failed to finalize download: %w", err)
 	}
-
 	return nil
 }
 
-// DeleteModel removes a downloaded model
+// DeleteModel removes a downloaded catalog model and any partial download.
 func (m *Manager) DeleteModel(modelName string) error {
-	path := m.GetModelPath(modelName)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil // Already deleted
+	spec, err := RequireModel(modelName)
+	if err != nil {
+		return err
 	}
-	return os.Remove(path)
+	path := filepath.Join(m.modelsDir, spec.Filename)
+	m.removePartials(spec)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
-// ListDownloadedModels returns a list of downloaded model names
-func (m *Manager) ListDownloadedModels() ([]string, error) {
+// ListDownloadedModels returns the catalog models that are fully downloaded.
+func (m *Manager) ListDownloadedModels() []string {
+	var names []string
+	for _, spec := range catalog {
+		if m.IsModelDownloaded(spec.Name) {
+			names = append(names, spec.Name)
+		}
+	}
+	return names
+}
+
+// removePartials deletes leftover temporary files for spec, including the
+// fixed-name partials written by earlier versions.
+func (m *Manager) removePartials(spec ModelSpec) {
 	entries, err := os.ReadDir(m.modelsDir)
 	if err != nil {
-		return nil, err
+		return
 	}
-
-	var models []string
+	prefix := spec.Filename + "-"
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
 		name := entry.Name()
-		if len(name) > 9 && name[:5] == "ggml-" && name[len(name)-4:] == ".bin" {
-			// Extract model name
-			modelName := name[5 : len(name)-4]
-			models = append(models, modelName)
+		if name == spec.Filename+".tmp" || (strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".tmp")) {
+			_ = os.Remove(filepath.Join(m.modelsDir, name))
 		}
 	}
-	return models, nil
 }
