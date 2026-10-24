@@ -3,6 +3,9 @@
 package overlay
 
 import (
+	"image"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -37,13 +40,6 @@ type windowClass struct {
 	menu, name                         *uint16
 	smallIcon                          uintptr
 }
-type paintStruct struct {
-	dc              uintptr
-	erase           int32
-	area            rect
-	restore, update int32
-	reserved        [32]byte
-}
 
 // Overlay owns a non-activating tool window on a dedicated Windows UI thread.
 // Desired state is read on a timer so audio callbacks never wait on the UI.
@@ -55,6 +51,8 @@ type Overlay struct {
 	stop, cancel       func()
 	hwnd               uintptr
 	done               chan struct{}
+	history            [waveformBars]float32
+	frameErr           error
 }
 
 func New() *Overlay {
@@ -70,6 +68,7 @@ func (o *Overlay) Show() {
 	o.visible = true
 	o.status = "Recording..."
 	o.level = 0
+	o.history = [waveformBars]float32{}
 	o.mu.Unlock()
 }
 func (o *Overlay) Hide()                       { o.mu.Lock(); o.visible = false; o.mu.Unlock() }
@@ -88,6 +87,16 @@ func (o *Overlay) run(ready chan struct{}) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(o.done)
+	var renderer *overlayRenderer
+	var surface *layeredSurface
+	defer func() {
+		if renderer != nil {
+			renderer.face.Close()
+		}
+		if surface != nil {
+			surface.close()
+		}
+	}()
 	name, _ := windows.UTF16PtrFromString("YapRecordingOverlay")
 	instance, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
 	proc := windows.NewCallback(func(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
@@ -95,17 +104,21 @@ func (o *Overlay) run(ready chan struct{}) {
 		case 0x21: // WM_MOUSEACTIVATE: accept clicks without stealing input focus.
 			return 3 // MA_NOACTIVATE
 		case 0x0f:
-			o.paint(hwnd)
+			call("ValidateRect", hwnd, 0)
 			return 0
 		case 0x202: // WM_LBUTTONUP
-			x, y := int32(int16(lp)), int32(int16(lp>>16))
+			scale := float64(call("GetDpiForWindow", hwnd)) / 96
+			if scale == 0 {
+				scale = 1
+			}
+			p := image.Pt(int(float64(int16(lp))/scale), int(float64(int16(lp>>16))/scale))
 			o.mu.Lock()
 			var cb func()
-			if y >= 55 && y <= 94 {
-				if x >= 210 && x < 285 && o.status == "Recording..." {
+			if o.status == "Recording..." {
+				if p.In(stopBounds) {
 					cb = o.stop
 				}
-				if x >= 290 && x < 375 && o.status == "Recording..." {
+				if p.In(cancelBounds) {
 					cb = o.cancel
 				}
 			}
@@ -129,7 +142,7 @@ func (o *Overlay) run(ready chan struct{}) {
 	}
 	defer call("UnregisterClassW", uintptr(unsafe.Pointer(name)), instance)
 	// WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, WS_POPUP.
-	hwnd := call("CreateWindowExW", 0x08000088, uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(name)), 0x80000000, 0, 0, 380, 100, 0, 0, instance, 0)
+	hwnd := call("CreateWindowExW", 0x08080088, uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(name)), 0x80000000, 0, 0, overlayWidth, overlayHeight, 0, 0, instance, 0)
 	o.hwnd = hwnd
 	close(ready)
 	if hwnd == 0 {
@@ -167,58 +180,72 @@ func (o *Overlay) run(ready chan struct{}) {
 				}{}
 				info.size = uint32(unsafe.Sizeof(info))
 				call("GetMonitorInfoW", monitor, uintptr(unsafe.Pointer(&info)))
-				x := info.work.left + (info.work.right-info.work.left-380)/2
-				call("SetWindowPos", hwnd, ^uintptr(0), uintptr(x), uintptr(info.work.top+40), 380, 100, 0x50) // SHOWWINDOW | NOACTIVATE
+				// Move first so GetDpiForWindow reports the destination monitor's DPI.
+				call("SetWindowPos", hwnd, ^uintptr(0), uintptr(info.work.left), uintptr(info.work.top+40), 0, 0, 0x11)
+				scale := float64(call("GetDpiForWindow", hwnd)) / 96
+				if scale == 0 {
+					scale = 1
+				}
+				if renderer == nil || renderer.scale != scale {
+					if renderer != nil {
+						renderer.face.Close()
+						surface.close()
+					}
+					fontData, _ := os.ReadFile(filepath.Join(os.Getenv("WINDIR"), "Fonts", "seguisb.ttf"))
+					var err error
+					renderer, err = newOverlayRenderer(scale, fontData)
+					if err != nil {
+						logger.Error("Could not load overlay font: " + err.Error())
+						return
+					}
+					surface, err = newLayeredSurface(renderer.background.Bounds().Size())
+					if err != nil {
+						logger.Error(err.Error())
+						return
+					}
+				}
+				width, height := renderer.background.Rect.Dx(), renderer.background.Rect.Dy()
+				x := info.work.left + (info.work.right-info.work.left-int32(width))/2
+				call("SetWindowPos", hwnd, ^uintptr(0), uintptr(x), uintptr(info.work.top+int32(40*scale)), uintptr(width), uintptr(height), 0x10)
+				o.drawFrame(hwnd, renderer, surface, false)
+				call("ShowWindow", hwnd, 4) // SW_SHOWNOACTIVATE
 			} else {
 				call("ShowWindow", hwnd, 0)
 			}
 			shown = visible
 		}
 		if shown && msg.id == 0x113 {
-			call("InvalidateRect", hwnd, 0, 0)
+			o.drawFrame(hwnd, renderer, surface, true)
 		}
 		call("TranslateMessage", uintptr(unsafe.Pointer(&msg)))
 		call("DispatchMessageW", uintptr(unsafe.Pointer(&msg)))
 	}
 }
 
-func (o *Overlay) paint(hwnd uintptr) {
-	var ps paintStruct
-	dc := call("BeginPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
-	defer call("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
-	fill := func(r rect, color uintptr) {
-		brush, _, _ := gdi32.NewProc("CreateSolidBrush").Call(color)
-		call("FillRect", dc, uintptr(unsafe.Pointer(&r)), brush)
-		gdi32.NewProc("DeleteObject").Call(brush)
-	}
-	fill(rect{0, 0, 380, 100}, 0x202020)
+func (o *Overlay) drawFrame(hwnd uintptr, renderer *overlayRenderer, surface *layeredSurface, advance bool) {
 	o.mu.Lock()
-	status, level := o.status, o.level
+	if advance {
+		copy(o.history[:], o.history[1:])
+		o.history[waveformBars-1] = o.level
+	}
+	status, history := o.status, o.history
 	o.mu.Unlock()
-	if level < 0 {
-		level = 0
+	var cursor point
+	call("GetCursorPos", uintptr(unsafe.Pointer(&cursor)))
+	call("ScreenToClient", hwnd, uintptr(unsafe.Pointer(&cursor)))
+	p := image.Pt(int(float64(cursor.x)/renderer.scale), int(float64(cursor.y)/renderer.scale))
+	hover := 0
+	if p.In(stopBounds) {
+		hover = 1
 	}
-	if level > 1 {
-		level = 1
+	if p.In(cancelBounds) {
+		hover = 2
 	}
-	for i := int32(0); i < 50; i++ {
-		h := int32(4 + level*28)
-		fill(rect{20 + i*7, 27 - h/2, 23 + i*7, 27 + h/2}, 0x4eff00)
+	err := surface.present(hwnd, renderer.render(status, history, hover))
+	o.mu.Lock()
+	if err != nil && o.frameErr == nil {
+		logger.Error(err.Error())
 	}
-	gdi32.NewProc("SetBkMode").Call(dc, 1)
-	gdi32.NewProc("SetTextColor").Call(dc, 0xeeeeee)
-	font, _, _ := gdi32.NewProc("GetStockObject").Call(17) // DEFAULT_GUI_FONT
-	old, _, _ := gdi32.NewProc("SelectObject").Call(dc, font)
-	defer gdi32.NewProc("SelectObject").Call(dc, old)
-	text := func(s string, r rect) {
-		p, _ := windows.UTF16PtrFromString(s)
-		call("DrawTextW", dc, uintptr(unsafe.Pointer(p)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), 0x24)
-	}
-	text(status, rect{20, 55, 205, 94})
-	if status == "Recording..." {
-		fill(rect{210, 55, 285, 94}, 0x383838)
-		fill(rect{290, 55, 375, 94}, 0x383838)
-		text("Stop", rect{225, 55, 280, 94})
-		text("Cancel", rect{303, 55, 370, 94})
-	}
+	o.frameErr = err
+	o.mu.Unlock()
 }

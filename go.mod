@@ -8,6 +8,7 @@ require (
 	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/wailsapp/wails/v2 v2.10.1
+	golang.org/x/image v0.24.0
 	golang.org/x/sys v0.30.0
 )
 

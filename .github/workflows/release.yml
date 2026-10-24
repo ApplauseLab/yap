@@ -411,10 +411,18 @@ jobs:
             throw "whisper processes left running after the harness"
           }
 
-      - name: Test Windows audio lifecycle
+      - name: Test Windows audio and overlay lifecycle
         env:
           CGO_ENABLED: '1'
+          YAP_TEST_OVERLAY_ARTIFACTS: ${{ runner.temp }}/yap-overlay-preview
         run: go test -race -count=1 ./internal/audio/... ./internal/overlay/...
+
+      - name: Upload Windows overlay previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-overlay-preview
+          path: ${{ runner.temp }}/yap-overlay-preview
+          retention-days: 5
 
       - name: Smoke test installed Windows app startup
         run: ./scripts/windows-startup-smoke.ps1 -AppPath "C:\Program Files\Applause Lab\Yap\Yap.exe"
