@@ -397,7 +397,7 @@ jobs:
                 Write-Host "== $($layout.Name) layout, expected backend $($mode.Backend)"
                 if ($mode.Server) { $env:YAP_TEST_WHISPER_SERVER = $mode.Server } else { Remove-Item Env:YAP_TEST_WHISPER_SERVER -ErrorAction SilentlyContinue }
                 $env:YAP_TEST_EXPECT_BACKEND = $mode.Backend
-                & $harness "-test.run=^TestLocalEngine(TranscribeWAVReturnsTranscriptOnly|LeavesNoWorkerOrTempFiles)$" -test.v -test.count=1
+                & $harness "-test.run=^TestLocalEngine(TranscribeWAVReturnsTranscriptOnly|LeavesNoWorkerOrTempFiles)$" "-test.v" "-test.count=1"
                 if ($LASTEXITCODE -ne 0) { throw "transcription harness failed: $($layout.Name) $($mode.Backend)" }
               }
             } finally {
