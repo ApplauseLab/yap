@@ -80,6 +80,8 @@ type UsageStats struct {
 
 // App struct
 type App struct {
+	startupDone   chan struct{}
+	startupErr    error // Published by closing startupDone.
 	ctx           context.Context
 	recorder      *audio.Recorder
 	localEngine   *transcribe.LocalEngine
@@ -105,6 +107,7 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	app := &App{
+		startupDone:   make(chan struct{}),
 		recorder:      nil, // Created fresh for each recording
 		hotkeyManager: hotkey.NewManager(),
 		overlay:       overlay.New(),
@@ -127,6 +130,10 @@ func NewApp() *App {
 
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
+	// Wails can serve frontend binding calls before OnStartup returns.
+	// Publish all managers together; the UI waits before mounting App.
+	a.startupErr = fmt.Errorf("application startup did not complete")
+	defer close(a.startupDone)
 	a.ctx = ctx
 	runtime.LogInfo(a.ctx, "OnStartup: initializing")
 
@@ -145,6 +152,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize config manager
 	configManager, err := models.NewConfigManager()
 	if err != nil {
+		a.startupErr = fmt.Errorf("initialize configuration: %w", err)
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to initialize config: %v", err))
 		return
 	}
@@ -166,6 +174,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize model manager
 	modelManager, err := models.NewManager(configManager.GetModelsDir())
 	if err != nil {
+		a.startupErr = fmt.Errorf("initialize models: %w", err)
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to initialize model manager: %v", err))
 		return
 	}
@@ -219,6 +228,23 @@ func (a *App) startup(ctx context.Context) {
 	// Load history from disk
 	a.loadHistory()
 	runtime.LogInfo(a.ctx, "OnStartup: complete")
+	a.startupErr = nil
+}
+
+// WaitForStartup is a binding used before mounting the frontend. Closing the
+// channel publishes initialization writes to all waiting callers.
+func (a *App) WaitForStartup() error {
+	if a.startupDone == nil {
+		return fmt.Errorf("application startup has not been scheduled")
+	}
+	timer := time.NewTimer(60 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-a.startupDone:
+		return a.startupErr
+	case <-timer.C:
+		return fmt.Errorf("application startup timed out; check Yap logs")
+	}
 }
 
 // handleTerminationSignals stops the Whisper worker when Yap is terminated by
@@ -266,6 +292,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 // GetState returns the current app state
 func (a *App) GetState() AppState {
+	if err := a.WaitForStartup(); err != nil {
+		return AppState{Error: err.Error()}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -798,6 +827,9 @@ func (a *App) emitState() {
 
 // GetModels returns available models with download status
 func (a *App) GetModels() []ModelInfo {
+	if a.WaitForStartup() != nil {
+		return nil
+	}
 	available := transcribe.AvailableModels()
 	result := make([]ModelInfo, len(available))
 
@@ -877,6 +909,9 @@ func (a *App) SetOpenAIKey(key string) error {
 
 // GetConfig returns the current configuration
 func (a *App) GetConfig() *models.Config {
+	if a.WaitForStartup() != nil {
+		return nil
+	}
 	return a.configManager.Get()
 }
 
@@ -1148,6 +1183,9 @@ func (a *App) SetTray(onUpdate func(recording bool)) {
 
 // IsOnboardingCompleted checks if the user has completed onboarding
 func (a *App) IsOnboardingCompleted() bool {
+	if a.WaitForStartup() != nil {
+		return false
+	}
 	return a.configManager.IsOnboardingCompleted()
 }
 

@@ -181,3 +181,6 @@ export function StopRecording() {
 export function ToggleRecording() {
   return window['go']['main']['App']['ToggleRecording']();
 }
+export function WaitForStartup() {
+  return window['go']['main']['App']['WaitForStartup']();
+}

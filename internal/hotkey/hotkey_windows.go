@@ -23,7 +23,7 @@ var (
 	procTranslateMessage    = user32.NewProc("TranslateMessage")
 	procDispatchMessageW    = user32.NewProc("DispatchMessageW")
 	procPostThreadMessageW  = user32.NewProc("PostThreadMessageW")
-	procGetCurrentThreadId  = user32.NewProc("GetCurrentThreadId")
+	procGetCurrentThreadId  = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCurrentThreadId")
 )
 
 const (
