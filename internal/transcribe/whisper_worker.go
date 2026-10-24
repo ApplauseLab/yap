@@ -29,7 +29,12 @@ const (
 	// workerDiagnosticsLimit bounds retained whisper-server stderr, which
 	// grows with every request for the lifetime of the worker.
 	workerDiagnosticsLimit = 64 << 10
-	workerPIDFileName      = "whisper-worker.pid"
+	// Each Yap process records its worker in its own file so instances that
+	// share a data directory (wails dev beside the installed app) never
+	// overwrite or delete each other's records. The glob also matches the
+	// single shared whisper-worker.pid written by Yap 0.4.2.
+	workerPIDFilePattern = "whisper-worker-%d.pid"
+	workerPIDFileGlob    = "whisper-worker*.pid"
 )
 
 type whisperWorker struct {
@@ -184,6 +189,12 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	// Record the worker before the (up to workerStartupTimeout) model load so
+	// that it is reaped on next launch even if Yap dies while it starts.
+	e.writeWorkerPID(cmd.Process.Pid)
+	if err := startWorkerWatchdog(cmd.Process.Pid); err != nil {
+		logger.Warning(fmt.Sprintf("Failed to start Whisper worker watchdog: %v", err))
+	}
 
 	worker := &whisperWorker{
 		cmd:         cmd,
@@ -204,10 +215,10 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 	defer cancel()
 	if err := worker.waitReady(startupCtx); err != nil {
 		worker.stop()
+		e.removeWorkerPID()
 		return nil, fmt.Errorf("worker startup failed: %w; backend=%q output=%q", err, backend.path, diagnostics.String())
 	}
 	e.worker = worker
-	e.writeWorkerPID(cmd.Process.Pid)
 	e.lastBackend = workerBackendName(worker)
 	logger.Info(fmt.Sprintf("Persistent Whisper worker ready: backend=%s model=%q pid=%d", e.lastBackend, modelPath, cmd.Process.Pid))
 	return worker, nil
@@ -225,7 +236,7 @@ func (e *LocalEngine) workerPIDPath() string {
 	if e.modelsDir == "" {
 		return ""
 	}
-	return filepath.Join(e.modelsDir, workerPIDFileName)
+	return filepath.Join(e.modelsDir, fmt.Sprintf(workerPIDFilePattern, os.Getpid()))
 }
 
 func (e *LocalEngine) writeWorkerPID(pid int) {
@@ -245,13 +256,23 @@ func (e *LocalEngine) removeWorkerPID() {
 	}
 }
 
-// ReapOrphanedWorker stops a whisper-server left running by a previous Yap
-// process that exited without shutting it down (crash, force quit, SIGKILL).
+// ReapOrphanedWorker stops whisper-server processes left running by previous
+// Yap processes that exited without shutting them down (crash, force quit,
+// SIGKILL).
 func (e *LocalEngine) ReapOrphanedWorker() {
-	path := e.workerPIDPath()
-	if path == "" {
+	if e.modelsDir == "" {
 		return
 	}
+	paths, err := filepath.Glob(filepath.Join(e.modelsDir, workerPIDFileGlob))
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		reapWorkerRecord(path)
+	}
+}
+
+func reapWorkerRecord(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return

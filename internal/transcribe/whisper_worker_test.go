@@ -239,6 +239,15 @@ func TestWhisperWorkerHelper(t *testing.T) {
 	if os.Getenv("YAP_TEST_WORKER_FAIL_METAL") == "1" && strings.Contains(backend, "libggml-metal") {
 		os.Exit(1)
 	}
+	// Simulate a slow model load: stay unready until the gate file exists.
+	if gate := os.Getenv("YAP_TEST_WORKER_STARTUP_GATE"); gate != "" {
+		for {
+			if _, err := os.Stat(gate); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(requestPath+"/", func(w http.ResponseWriter, _ *http.Request) {

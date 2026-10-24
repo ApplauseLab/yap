@@ -4,6 +4,7 @@ import (
 	"embed"
 
 	filelogger "yap/internal/logger"
+	"yap/internal/transcribe"
 	"yap/internal/tray"
 
 	"github.com/wailsapp/wails/v2"
@@ -19,6 +20,10 @@ var assets embed.FS
 var appVersion = "dev"
 
 func main() {
+	// Yap re-executes itself as the Whisper worker watchdog; that mode must
+	// not initialise logging, the tray, or Wails.
+	transcribe.RunWorkerWatchdogIfRequested()
+
 	if err := filelogger.Init(); err != nil {
 		println("Warning: Failed to initialize file logger:", err.Error())
 	}
