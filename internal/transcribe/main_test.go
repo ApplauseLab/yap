@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,6 +35,8 @@ func TestMain(m *testing.M) {
 		os.Exit(runConsoleLauncher())
 	case "owner":
 		os.Exit(runFakeOwner())
+	case "plain-owner":
+		os.Exit(runPlainOwner())
 	}
 	os.Exit(m.Run())
 }
@@ -89,6 +92,21 @@ func runFakeOwner() int {
 	pid := engine.worker.cmd.Process.Pid
 	engine.workerMu.Unlock()
 	if err := os.WriteFile(os.Getenv("YAP_TEST_OWNER_PID_FILE"), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+		return 4
+	}
+	time.Sleep(60 * time.Second)
+	return 0
+}
+
+// runPlainOwner starts a child without binding it to its lifetime, as a
+// control for runFakeOwner.
+func runPlainOwner() int {
+	cmd := exec.Command(os.Getenv("YAP_TEST_OWNER_SERVER"))
+	cmd.Env = append(os.Environ(), testProcessRoleEnv+"=sleep")
+	if err := cmd.Start(); err != nil {
+		return 3
+	}
+	if err := os.WriteFile(os.Getenv("YAP_TEST_OWNER_PID_FILE"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
 		return 4
 	}
 	time.Sleep(60 * time.Second)

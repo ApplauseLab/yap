@@ -44,20 +44,18 @@ func TestHideChildConsoleSuppressesConsoleWindow(t *testing.T) {
 	}
 }
 
-func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
-	tmpDir := t.TempDir()
-	modelsDir := newTestModelsDir(t, tmpDir)
-	pidFile := filepath.Join(tmpDir, "worker.pid")
-	consoleLog := filepath.Join(tmpDir, "console.log")
+// startOwner starts a console-less owner process (like Yap's GUI executable)
+// in the given role and returns it with the PID of the child it started.
+func startOwner(t *testing.T, role string, tmpDir string, modelsDir string, env ...string) (*exec.Cmd, int) {
+	t.Helper()
+	pidFile := filepath.Join(tmpDir, role+".pid")
 	owner := exec.Command(os.Args[0])
-	owner.Env = append(os.Environ(),
-		testProcessRoleEnv+"=owner",
+	owner.Env = append(append(os.Environ(),
+		testProcessRoleEnv+"="+role,
 		"YAP_TEST_OWNER_MODELS_DIR="+modelsDir,
 		"YAP_TEST_OWNER_SERVER="+copyTestBinary(t, tmpDir, "whisper-server"),
 		"YAP_TEST_OWNER_PID_FILE="+pidFile,
-		"YAP_TEST_CONSOLE_LOG="+consoleLog,
-	)
-	// Like Yap's GUI executable, the owner has no console of its own.
+	), env...)
 	owner.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
 	if err := owner.Start(); err != nil {
 		t.Fatal(err)
@@ -66,18 +64,43 @@ func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
 		_ = owner.Process.Kill()
 		_, _ = owner.Process.Wait()
 	})
-
-	var workerPID int
+	var childPID int
 	if !waitUntil(15*time.Second, func() bool {
 		data, err := os.ReadFile(pidFile)
 		if err != nil {
 			return false
 		}
-		workerPID, err = strconv.Atoi(strings.TrimSpace(string(data)))
+		childPID, err = strconv.Atoi(strings.TrimSpace(string(data)))
 		return err == nil
 	}) {
-		t.Fatal("owner did not start a worker")
+		t.Fatalf("%s did not start a child", role)
 	}
+	return owner, childPID
+}
+
+func TestUnboundChildOutlivesTerminatedOwner(t *testing.T) {
+	tmpDir := t.TempDir()
+	owner, childPID := startOwner(t, "plain-owner", tmpDir, tmpDir)
+	t.Cleanup(func() {
+		if process, err := os.FindProcess(childPID); err == nil {
+			_ = process.Kill()
+		}
+	})
+	if err := owner.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = owner.Process.Wait()
+	time.Sleep(time.Second)
+	if !isWhisperServerProcess(childPID) {
+		t.Fatal("control child died with its owner; the job-object test proves nothing")
+	}
+}
+
+func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
+	tmpDir := t.TempDir()
+	modelsDir := newTestModelsDir(t, tmpDir)
+	consoleLog := filepath.Join(tmpDir, "console.log")
+	owner, workerPID := startOwner(t, "owner", tmpDir, modelsDir, "YAP_TEST_CONSOLE_LOG="+consoleLog)
 	if !isWhisperServerProcess(workerPID) {
 		t.Fatalf("worker pid=%d is not running", workerPID)
 	}
