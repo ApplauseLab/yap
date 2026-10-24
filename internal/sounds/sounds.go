@@ -17,6 +17,25 @@ var tempDir string
 var startSoundPath string
 var stopSoundPath string
 
+// playerCommand plays a sound with afplay at reduced volume (0.6).
+func playerCommand(path string) *exec.Cmd {
+	return exec.Command("afplay", "-v", "0.6", path)
+}
+
+// playAsync starts playback without blocking and reaps the player when it
+// exits. Starting a child without ever waiting for it leaves a zombie process
+// behind for every sound played (issue #9).
+func playAsync(path string) error {
+	cmd := playerCommand(path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
+}
+
 // Init extracts embedded sounds to temp directory for playback
 func Init() error {
 	var err error
@@ -62,9 +81,7 @@ func PlayStart() {
 		return
 	}
 	logger.Debug(fmt.Sprintf("PlayStart: playing %s", startSoundPath))
-	// Use afplay with reduced volume (0.6)
-	cmd := exec.Command("afplay", "-v", "0.6", startSoundPath)
-	if err := cmd.Start(); err != nil {
+	if err := playAsync(startSoundPath); err != nil {
 		logger.Warning(fmt.Sprintf("PlayStart error: %v", err))
 	}
 }
@@ -76,9 +93,7 @@ func PlayStop() {
 		return
 	}
 	logger.Debug(fmt.Sprintf("PlayStop: playing %s", stopSoundPath))
-	// Use afplay with reduced volume (0.6)
-	cmd := exec.Command("afplay", "-v", "0.6", stopSoundPath)
-	if err := cmd.Start(); err != nil {
+	if err := playAsync(stopSoundPath); err != nil {
 		logger.Warning(fmt.Sprintf("PlayStop error: %v", err))
 	}
 }
@@ -90,7 +105,7 @@ func PlayStartSync() {
 		return
 	}
 	logger.Debug(fmt.Sprintf("PlayStartSync: playing %s", startSoundPath))
-	cmd := exec.Command("afplay", "-v", "0.6", startSoundPath)
+	cmd := playerCommand(startSoundPath)
 	if err := cmd.Run(); err != nil {
 		logger.Warning(fmt.Sprintf("PlayStartSync error: %v", err))
 	}
@@ -101,6 +116,6 @@ func PlayStopSync() {
 	if stopSoundPath == "" {
 		return
 	}
-	cmd := exec.Command("afplay", "-v", "0.6", stopSoundPath)
+	cmd := playerCommand(stopSoundPath)
 	cmd.Run() // Blocking
 }
