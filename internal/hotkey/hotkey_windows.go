@@ -20,6 +20,7 @@ var (
 	procCallNextHookEx      = user32.NewProc("CallNextHookEx")
 	procUnhookWindowsHookEx = user32.NewProc("UnhookWindowsHookEx")
 	procGetMessageW         = user32.NewProc("GetMessageW")
+	procPeekMessageW        = user32.NewProc("PeekMessageW")
 	procTranslateMessage    = user32.NewProc("TranslateMessage")
 	procDispatchMessageW    = user32.NewProc("DispatchMessageW")
 	procPostThreadMessageW  = user32.NewProc("PostThreadMessageW")
@@ -92,6 +93,8 @@ type Callback func()
 
 // Manager handles global hotkey registration
 type Manager struct {
+	lifecycleMu    sync.Mutex
+	loopDone       chan struct{}
 	pressed        map[uint32]bool
 	mu             sync.Mutex
 	running        bool
@@ -167,6 +170,8 @@ func (m *Manager) handleKey(code uint32, message uintptr) {
 
 // Register registers the global hotkey
 func (m *Manager) Register(cb Callback) error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()
@@ -175,6 +180,8 @@ func (m *Manager) Register(cb Callback) error {
 	m.hotkeyCallback = cb
 	m.hotkeyCode = KeyNameToCode(m.hotkeyStr)
 	m.cancelCode = KeyNameToCode(m.cancelStr)
+	m.pressed = make(map[uint32]bool)
+	m.loopDone = make(chan struct{})
 	m.mu.Unlock()
 
 	// Set global manager for callback
@@ -185,6 +192,7 @@ func (m *Manager) Register(cb Callback) error {
 	// Start the hook in a dedicated goroutine locked to an OS thread
 	started := make(chan error, 1)
 	go func() {
+		defer close(m.loopDone)
 		// Lock this goroutine to the current OS thread - required for Windows hooks
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
@@ -194,6 +202,9 @@ func (m *Manager) Register(cb Callback) error {
 		m.mu.Lock()
 		m.threadId = uint32(threadId)
 		m.mu.Unlock()
+		// PostThreadMessage needs a queue, even for immediate Unregister.
+		var msg MSG
+		procPeekMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0, 0)
 
 		// Install the keyboard hook
 		hookHandle, _, err := procSetWindowsHookExW.Call(
@@ -210,13 +221,13 @@ func (m *Manager) Register(cb Callback) error {
 
 		m.mu.Lock()
 		m.running = true
+		hotkeyStr, hotkeyCode := m.hotkeyStr, m.hotkeyCode
 		m.mu.Unlock()
 
-		logger.Info(fmt.Sprintf("Keyboard hook installed, hotkey: %s (code: %d)", m.hotkeyStr, m.hotkeyCode))
+		logger.Info(fmt.Sprintf("Keyboard hook installed, hotkey: %s (code: %d)", hotkeyStr, hotkeyCode))
 		started <- nil
 
 		// Message loop - required for the hook to work
-		var msg MSG
 		for {
 			ret, _, _ := procGetMessageW.Call(
 				uintptr(unsafe.Pointer(&msg)),
@@ -249,18 +260,25 @@ func (m *Manager) Register(cb Callback) error {
 
 // Unregister removes the hotkey
 func (m *Manager) Unregister() error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	if !m.running {
 		m.mu.Unlock()
 		return nil
 	}
 	threadId := m.threadId
+	done := m.loopDone
 	m.mu.Unlock()
 
 	// Post WM_QUIT to the message loop to stop it
 	if threadId != 0 {
-		procPostThreadMessageW.Call(uintptr(threadId), WM_QUIT, 0, 0)
+		if result, _, err := procPostThreadMessageW.Call(uintptr(threadId), WM_QUIT, 0, 0); result == 0 {
+			return fmt.Errorf("failed to stop keyboard hook: %v", err)
+		}
 	}
+	// A new Register must not observe the old loop as still running.
+	<-done
 
 	// Clear global manager
 	globalManagerMu.Lock()

@@ -58,3 +58,22 @@ func TestHeldRecordingKeyOnlyTriggersOnce(t *testing.T) {
 		t.Fatal("second press was ignored")
 	}
 }
+
+func TestImmediateReregistration(t *testing.T) {
+	m := NewManager()
+	t.Cleanup(func() { _ = m.Unregister() })
+	for i := 0; i < 20; i++ {
+		if err := m.Register(func() {}); err != nil {
+			t.Fatal(err)
+		}
+		if !m.IsRegistered() {
+			t.Fatal("registration was lost")
+		}
+		if err := m.Unregister(); err != nil {
+			t.Fatal(err)
+		}
+		if m.IsRegistered() {
+			t.Fatal("Unregister returned before the old hook stopped")
+		}
+	}
+}
