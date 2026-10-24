@@ -414,7 +414,7 @@ jobs:
       - name: Test Windows audio lifecycle
         env:
           CGO_ENABLED: '1'
-        run: go test -race -count=1 ./internal/audio/...
+        run: go test -race -count=1 ./internal/audio/... ./internal/overlay/...
 
       - name: Smoke test installed Windows app startup
         run: ./scripts/windows-startup-smoke.ps1 -AppPath "C:\Program Files\Applause Lab\Yap\Yap.exe"

@@ -153,7 +153,8 @@ func (o *Overlay) run(ready chan struct{}) {
 		visible, destroyed := o.visible, o.destroyed
 		o.mu.Unlock()
 		if destroyed {
-			return
+			call("DestroyWindow", hwnd)
+			continue // Consume WM_QUIT before releasing this OS thread.
 		}
 		if visible != shown {
 			if visible {
