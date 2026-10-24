@@ -45,3 +45,25 @@ jobs:
 
       - name: Test Go packages
         run: go test ./...
+
+  # The full module needs CGO (PortAudio, hotkeys), but the Windows-specific
+  # transcription runtime code (process lifetime, console, reaper) does not.
+  test-windows:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Vet Windows packages
+        run: go vet ./internal/transcribe/... ./internal/system/... ./internal/logger/...
+
+      - name: Test transcription runtime on Windows
+        run: go test -count=1 -v ./internal/transcribe/...

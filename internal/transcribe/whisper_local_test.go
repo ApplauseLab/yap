@@ -10,6 +10,9 @@ import (
 )
 
 func TestWhisperEnvUsesBackendFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows builds link the CPU backend statically")
+	}
 	tmpDir := t.TempDir()
 	binDir := filepath.Join(tmpDir, "bin")
 	libexecDir := filepath.Join(tmpDir, "libexec")

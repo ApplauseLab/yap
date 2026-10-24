@@ -34,8 +34,10 @@ Built with [Wails](https://wails.io/) (Go + React).
 | Platform | Download |
 |----------|----------|
 | **macOS** (Apple Silicon, Intel via Rosetta) | [DMG Installer](https://github.com/ApplauseLab/yap/releases/latest) |
-| **Windows** | [Installer](https://github.com/ApplauseLab/yap/releases/latest) |
-| **Linux** | [AppImage](https://github.com/ApplauseLab/yap/releases/latest) · [DEB](https://github.com/ApplauseLab/yap/releases/latest) |
+| **Windows** (x64) | [Installer](https://github.com/ApplauseLab/yap/releases/latest) |
+| **Linux** (x64) | [AppImage](https://github.com/ApplauseLab/yap/releases/latest) · [DEB](https://github.com/ApplauseLab/yap/releases/latest) |
+
+On Windows and Linux, the bundled local transcription runtime requires an x64 CPU with AVX2 (Intel Haswell / AMD Excavator or newer; some Pentium, Celeron, and Atom models lack it). Cloud transcription works on any CPU.
 
 See all versions on the [Releases page](https://github.com/ApplauseLab/yap/releases).
 

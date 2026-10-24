@@ -61,7 +61,8 @@ func simulatePasteLinux() error {
 // simulatePasteWindows uses PowerShell to simulate Ctrl+V
 func simulatePasteWindows() error {
 	script := `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("^v")`
-	cmd := exec.Command("powershell", "-Command", script)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	hideConsole(cmd)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to simulate paste: %w", err)
 	}
