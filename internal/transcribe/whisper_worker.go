@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,10 @@ const (
 	workerStartupTimeout = 30 * time.Second
 	workerStopTimeout    = 2 * time.Second
 	workerResponseLimit  = 1 << 20
+	// workerDiagnosticsLimit bounds retained whisper-server stderr, which
+	// grows with every request for the lifetime of the worker.
+	workerDiagnosticsLimit = 64 << 10
+	workerPIDFileName      = "whisper-worker.pid"
 )
 
 type whisperWorker struct {
@@ -47,7 +52,15 @@ type lockedBuffer struct {
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Write(p)
+	n := len(p)
+	if len(p) > workerDiagnosticsLimit {
+		p = p[len(p)-workerDiagnosticsLimit:]
+	}
+	if overflow := b.buf.Len() + len(p) - workerDiagnosticsLimit; overflow > 0 {
+		b.buf.Next(overflow)
+	}
+	b.buf.Write(p)
+	return n, nil
 }
 
 func (b *lockedBuffer) String() string {
@@ -130,6 +143,9 @@ func (e *LocalEngine) ensureWorkerLocked(ctx context.Context, modelPath string) 
 			if err == nil {
 				return worker, nil
 			}
+			if ctx.Err() != nil {
+				return nil, err
+			}
 			e.disableMetal()
 		}
 	}
@@ -191,6 +207,7 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 		return nil, fmt.Errorf("worker startup failed: %w; backend=%q output=%q", err, backend.path, diagnostics.String())
 	}
 	e.worker = worker
+	e.writeWorkerPID(cmd.Process.Pid)
 	e.lastBackend = workerBackendName(worker)
 	logger.Info(fmt.Sprintf("Persistent Whisper worker ready: backend=%s model=%q pid=%d", e.lastBackend, modelPath, cmd.Process.Pid))
 	return worker, nil
@@ -200,7 +217,93 @@ func (e *LocalEngine) stopWorkerLocked() {
 	if e.worker != nil {
 		e.worker.stop()
 		e.worker = nil
+		e.removeWorkerPID()
 	}
+}
+
+func (e *LocalEngine) workerPIDPath() string {
+	if e.modelsDir == "" {
+		return ""
+	}
+	return filepath.Join(e.modelsDir, workerPIDFileName)
+}
+
+func (e *LocalEngine) writeWorkerPID(pid int) {
+	path := e.workerPIDPath()
+	if path == "" {
+		return
+	}
+	record := fmt.Sprintf("%d %d", pid, os.Getpid())
+	if err := os.WriteFile(path, []byte(record), 0o600); err != nil {
+		logger.Warning(fmt.Sprintf("Failed to record Whisper worker pid: %v", err))
+	}
+}
+
+func (e *LocalEngine) removeWorkerPID() {
+	if path := e.workerPIDPath(); path != "" {
+		_ = os.Remove(path)
+	}
+}
+
+// ReapOrphanedWorker stops a whisper-server left running by a previous Yap
+// process that exited without shutting it down (crash, force quit, SIGKILL).
+func (e *LocalEngine) ReapOrphanedWorker() {
+	path := e.workerPIDPath()
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) != 2 {
+		_ = os.Remove(path)
+		return
+	}
+	pid, pidErr := strconv.Atoi(fields[0])
+	parentPID, parentErr := strconv.Atoi(fields[1])
+	if pidErr != nil || parentErr != nil || pid <= 0 || parentPID <= 0 {
+		_ = os.Remove(path)
+		return
+	}
+	// Another running Yap instance (e.g. wails dev beside the installed app)
+	// may share this data directory; never touch a worker whose owner lives.
+	if parentPID != os.Getpid() && processAlive(parentPID) {
+		return
+	}
+	_ = os.Remove(path)
+	if !isWhisperServerProcess(pid) {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	if err := process.Kill(); err != nil {
+		logger.Warning(fmt.Sprintf("Failed to stop orphaned Whisper worker pid=%d: %v", pid, err))
+		return
+	}
+	logger.Info(fmt.Sprintf("Stopped orphaned Whisper worker pid=%d", pid))
+}
+
+func processAlive(pid int) bool {
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
+		return err == nil && strings.Contains(string(out), fmt.Sprintf("\"%d\"", pid))
+	}
+	return exec.Command("ps", "-p", strconv.Itoa(pid)).Run() == nil
+}
+
+func isWhisperServerProcess(pid int) bool {
+	var out []byte
+	var err error
+	if runtime.GOOS == "windows" {
+		out, err = exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
+	} else {
+		out, err = exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=").Output()
+	}
+	return err == nil && strings.Contains(strings.ToLower(string(out)), "whisper-server")
 }
 
 func (w *whisperWorker) waitReady(ctx context.Context) error {
@@ -289,16 +392,19 @@ func (w *whisperWorker) stop() {
 	if w == nil || w.cmd.Process == nil {
 		return
 	}
-	_ = w.cmd.Process.Signal(os.Interrupt)
-	select {
-	case <-w.done:
-		return
-	case <-time.After(workerStopTimeout):
-		_ = w.cmd.Process.Kill()
+	// Windows does not support delivering os.Interrupt to child processes.
+	if runtime.GOOS != "windows" {
+		_ = w.cmd.Process.Signal(os.Interrupt)
 		select {
 		case <-w.done:
+			return
 		case <-time.After(workerStopTimeout):
 		}
+	}
+	_ = w.cmd.Process.Kill()
+	select {
+	case <-w.done:
+	case <-time.After(workerStopTimeout):
 	}
 }
 

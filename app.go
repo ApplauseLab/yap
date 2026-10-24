@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"yap/internal/audio"
@@ -171,7 +173,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize transcription engines
 	a.localEngine = transcribe.NewLocalEngine(configManager.GetModelsDir())
+	a.localEngine.ReapOrphanedWorker()
 	a.localEngine.SetModel(transcribe.Model(configManager.Get().Model))
+	a.handleTerminationSignals()
 
 	a.openaiEngine = transcribe.NewOpenAIEngine(configManager.Get().OpenAIAPIKey)
 	if err := a.validateReadyToRecord(); err != nil {
@@ -215,6 +219,25 @@ func (a *App) startup(ctx context.Context) {
 	// Load history from disk
 	a.loadHistory()
 	runtime.LogInfo(a.ctx, "OnStartup: complete")
+}
+
+// handleTerminationSignals stops the Whisper worker when Yap is terminated by
+// a signal, which bypasses OnShutdown and would otherwise orphan the worker.
+func (a *App) handleTerminationSignals() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		sig := <-signals
+		logger.Info(fmt.Sprintf("Received %s; stopping local transcription worker", sig))
+		if a.localEngine != nil {
+			_ = a.localEngine.Close()
+		}
+		go func() {
+			time.Sleep(5 * time.Second)
+			os.Exit(0)
+		}()
+		runtime.Quit(a.ctx)
+	}()
 }
 
 // domReady is called when the frontend has loaded its DOM.
@@ -812,10 +835,14 @@ func (a *App) SetProvider(provider string) error {
 	if err := a.configManager.SetProvider(provider); err != nil {
 		return err
 	}
+	if a.localEngine == nil {
+		a.emitState()
+		return nil
+	}
 	if provider == "local" {
 		a.localEngine.Open()
 		a.prewarmLocalEngine()
-	} else if a.localEngine != nil {
+	} else {
 		_ = a.localEngine.Close()
 	}
 	a.emitState()

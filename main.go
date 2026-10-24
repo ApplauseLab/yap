@@ -54,6 +54,12 @@ func main() {
 	app.SetTray(tray.SetRecording)
 	filelogger.Info("Starting Wails runtime")
 
+	// A nil *FileLogger stored in the interface would silently drop Wails logs.
+	var wailsLogger wailslogger.Logger
+	if logger != nil {
+		wailsLogger = logger
+	}
+
 	err := wails.Run(&options.App{
 		Title:     "Yap",
 		Width:     950,
@@ -67,7 +73,7 @@ func main() {
 		OnStartup:          app.startup,
 		OnDomReady:         app.domReady,
 		OnShutdown:         app.shutdown,
-		Logger:             logger,
+		Logger:             wailsLogger,
 		LogLevel:           wailslogger.DEBUG,
 		LogLevelProduction: wailslogger.DEBUG,
 		Frameless:          false,

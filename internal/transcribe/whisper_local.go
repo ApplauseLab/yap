@@ -1,8 +1,10 @@
 package transcribe
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,8 +137,14 @@ func (e *LocalEngine) TranscribeWAV(ctx context.Context, wavData []byte) (string
 		cmdEnv := envWithValue(os.Environ(), "GGML_BACKEND_PATH", backend.path)
 		cmd := exec.CommandContext(ctx, whisperBin, args...)
 		cmd.Env = cmdEnv
+		// whisper-cli echoes the transcript on stdout; keep only stderr so
+		// diagnostics never write dictated text to the log file.
+		var stderr bytes.Buffer
+		cmd.Stdout = io.Discard
+		cmd.Stderr = &stderr
 
-		output, err := cmd.CombinedOutput()
+		err := cmd.Run()
+		output := stderr.Bytes()
 		if err != nil {
 			if backend.metal && ctx.Err() == nil {
 				e.disableMetal()
@@ -160,6 +168,9 @@ func (e *LocalEngine) TranscribeWAV(ctx context.Context, wavData []byte) (string
 
 // SetModel sets the model to use
 func (e *LocalEngine) SetModel(model Model) error {
+	if e.GetModel() == model {
+		return nil
+	}
 	e.resetOperations()
 	e.workerMu.Lock()
 	defer e.workerMu.Unlock()

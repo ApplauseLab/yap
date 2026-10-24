@@ -15,6 +15,7 @@ env:
   GO_VERSION: '1.23'
   NODE_VERSION: '20'
   WAILS_VERSION: 'latest'
+  WHISPER_CPP_VERSION: 'v1.9.5'
 
 jobs:
   prepare:
@@ -25,13 +26,19 @@ jobs:
     steps:
       - name: Determine version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             VERSION="${TAG#v}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
             TAG="v${VERSION}"
+          fi
+          if [[ "${VERSION}" != "dev" && ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Invalid version: ${VERSION}"
+            exit 1
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
@@ -89,7 +96,8 @@ jobs:
           cp -L /opt/homebrew/opt/whisper-cpp/lib/libwhisper*.dylib "$APP/Contents/Resources/lib/"
           cp -L /opt/homebrew/opt/ggml/lib/libggml*.dylib "$APP/Contents/Resources/lib/"
           cp -L /opt/homebrew/opt/libomp/lib/libomp.dylib "$APP/Contents/Resources/lib/"
-          cp -L /opt/homebrew/opt/ggml/libexec/* "$APP/Contents/Resources/libexec/" || true
+          cp -L /opt/homebrew/opt/ggml/libexec/* "$APP/Contents/Resources/libexec/"
+          ls "$APP/Contents/Resources/libexec"/libggml-cpu-*.so >/dev/null
 
           for lib in "$APP/Contents/Resources/lib"/*.dylib; do
             install_name_tool -id "@executable_path/../lib/$(basename "$lib")" "$lib" || true
@@ -160,11 +168,7 @@ jobs:
             --hide-extension "Yap.app" \
             --app-drop-link 450 150 \
             "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg" \
-            "build/bin/Yap.app" || true
-
-          if [ ! -f "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg" ]; then
-            hdiutil create -volname "Yap" -srcfolder "build/bin/Yap.app" -ov -format UDZO "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
-          fi
+            "build/bin/Yap.app"
 
           MOUNT_OUTPUT=$(hdiutil attach -readonly -nobrowse "Yap-${{ needs.prepare.outputs.version }}-macOS.dmg")
           MOUNT_DIR=$(printf '%s\n' "$MOUNT_OUTPUT" | awk '/\/Volumes\// {print substr($0, index($0, "/Volumes/")); exit}')
@@ -206,11 +210,26 @@ jobs:
         run: |
           git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg install portaudio:x64-windows whisper-cpp:x64-windows
+          C:\vcpkg\vcpkg install portaudio:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           echo "CGO_CFLAGS=-IC:/vcpkg/installed/x64-windows/include" >> $env:GITHUB_ENV
           echo "CGO_LDFLAGS=-LC:/vcpkg/installed/x64-windows/lib -lportaudio" >> $env:GITHUB_ENV
           echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
           echo "C:/vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
+
+      # The vcpkg whisper-cpp port does not build whisper-cli or whisper-server,
+      # so build them from source as self-contained executables.
+      - name: Build whisper.cpp CLI and server
+        run: |
+          git clone --depth 1 --branch $env:WHISPER_CPP_VERSION https://github.com/ggml-org/whisper.cpp.git C:\whisper.cpp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake -S C:\whisper.cpp -B C:\whisper.cpp\build `
+            -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=ON -DWHISPER_SDL2=OFF `
+            -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF `
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build C:\whisper.cpp\build --config Release --target whisper-cli whisper-server -j 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install NSIS
         run: |
@@ -227,16 +246,14 @@ jobs:
       - name: Copy Windows runtime dependencies
         run: |
           New-Item -ItemType Directory -Force -Path "build\bin\bin"
+          $ErrorActionPreference = "Stop"
           Copy-Item "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
-          Copy-Item "C:\vcpkg\installed\x64-windows\tools\whisper-cpp\whisper-cli.exe" -Destination "build\bin\bin\" -ErrorAction SilentlyContinue
-          Copy-Item "C:\vcpkg\installed\x64-windows\tools\whisper-cpp\whisper-server.exe" -Destination "build\bin\bin\" -ErrorAction SilentlyContinue
-          if (-not (Test-Path "build\bin\bin\whisper-cli.exe")) {
-            Get-ChildItem -Path "C:\vcpkg\installed\x64-windows" -Filter "whisper-cli.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "build\bin\bin\whisper-cli.exe"
+          Copy-Item "C:\whisper.cpp\build\bin\Release\whisper-cli.exe" -Destination "build\bin\bin\"
+          Copy-Item "C:\whisper.cpp\build\bin\Release\whisper-server.exe" -Destination "build\bin\bin\"
+          foreach ($exe in "whisper-cli.exe", "whisper-server.exe") {
+            & "build\bin\bin\$exe" --help *> $null
+            if ($LASTEXITCODE -ne 0) { throw "$exe failed to start (exit $LASTEXITCODE)" }
           }
-          if (-not (Test-Path "build\bin\bin\whisper-server.exe")) {
-            Get-ChildItem -Path "C:\vcpkg\installed\x64-windows" -Filter "whisper-server.exe" -Recurse | Select-Object -First 1 | Copy-Item -Destination "build\bin\bin\whisper-server.exe"
-          }
-          Get-ChildItem -Path "C:\vcpkg\installed\x64-windows\bin" -Filter "*.dll" | Where-Object { $_.Name -match "whisper|ggml|omp|openblas|blas" } | Copy-Item -Destination "build\bin\bin\" -ErrorAction SilentlyContinue
 
       - name: Build Windows App
         run: |
@@ -254,6 +271,9 @@ jobs:
           Copy-Item "build\bin\Yap.exe" -Destination "portable\"
           Copy-Item "build\bin\portaudio.dll" -Destination "portable\" -ErrorAction SilentlyContinue
           Copy-Item "build\bin\bin" -Destination "portable\bin" -Recurse -Force
+          foreach ($exe in "whisper-cli.exe", "whisper-server.exe") {
+            if (-not (Test-Path "portable\bin\$exe")) { throw "portable build is missing $exe" }
+          }
           Compress-Archive -Path "portable\*" -DestinationPath "Yap-${{ needs.prepare.outputs.version }}-Windows-Portable.zip" -Force
 
       - name: Rename installer
@@ -306,8 +326,8 @@ jobs:
 
       - name: Build whisper.cpp CLI
         run: |
-          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
-          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          git clone --depth 1 --branch "$WHISPER_CPP_VERSION" https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_NATIVE=OFF
           cmake --build /tmp/whisper.cpp/build --config Release --target whisper-cli whisper-server -j2
 
       - name: Install Wails
@@ -371,7 +391,7 @@ jobs:
             patchelf --set-rpath '$ORIGIN/../lib/yap' "$bin"
           done
           for lib in "${PKG_NAME}/usr/lib/yap"/*; do
-            [ -f "$lib" ] && patchelf --set-rpath '$ORIGIN' "$lib" || true
+            if [ -f "$lib" ]; then patchelf --set-rpath '$ORIGIN' "$lib"; fi
           done
           cp build/appicon.iconset/icon_256x256.png "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps/yap.png"
           cat > "${PKG_NAME}/usr/share/applications/yap.desktop" << EOF
@@ -438,8 +458,8 @@ jobs:
 
       - name: Build whisper.cpp CLI
         run: |
-          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
-          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          git clone --depth 1 --branch "$WHISPER_CPP_VERSION" https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DGGML_NATIVE=OFF
           cmake --build /tmp/whisper.cpp/build --config Release --target whisper-cli whisper-server -j2
 
       - name: Install Wails
@@ -504,7 +524,7 @@ jobs:
             patchelf --set-rpath '$ORIGIN/../lib/yap' "$bin"
           done
           for lib in "${PKG_NAME}/usr/lib/yap"/*; do
-            [ -f "$lib" ] && patchelf --set-rpath '$ORIGIN' "$lib" || true
+            if [ -f "$lib" ]; then patchelf --set-rpath '$ORIGIN' "$lib"; fi
           done
           cp build/appicon.iconset/icon_256x256.png "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps/yap.png"
           cat > "${PKG_NAME}/usr/share/applications/yap.desktop" << EOF
@@ -546,6 +566,8 @@ jobs:
 
   release:
     needs: [prepare, build-macos, build-windows, build-linux-ubuntu22, build-linux-ubuntu24]
+    # Manual runs without a version only build and upload workflow artifacts.
+    if: needs.prepare.outputs.version != 'dev'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -568,6 +590,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(needs.prepare.outputs.version, 'dev') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'alpha') }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             artifacts/macos-dmg/*.dmg
             artifacts/windows-installer/*.exe
@@ -587,7 +610,7 @@ jobs:
 
             | Platform | Download |
             |----------|----------|
-            | macOS (Apple Silicon, Intel via Rosetta) | `Yap-${{ needs.prepare.outputs.version }}-macOS.dmg` |
+            | macOS (Apple Silicon) | `Yap-${{ needs.prepare.outputs.version }}-macOS.dmg` |
             | Windows Installer | `Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe` |
             | Windows Portable | `Yap-${{ needs.prepare.outputs.version }}-Windows-Portable.zip` |
             | Linux (Ubuntu 22.04, Debian 11/12) | `Yap-${{ needs.prepare.outputs.version }}-Linux-ubuntu22.AppImage` or `.deb` |

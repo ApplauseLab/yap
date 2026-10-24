@@ -234,9 +234,13 @@ function App() {
 
   useEffect(() => {
     if (showOnboarding !== false || platform !== 'darwin') return;
-    if (!['needed', 'recovering', 'error'].includes(accessibilityRecovery)) return;
+    if (!['needed', 'error'].includes(accessibilityRecovery)) return;
 
-    const interval = window.setInterval(checkAccessibilityRecovery, 1000);
+    // Poll only while waiting for the grant. After a registration error, retry
+    // on focus or button press so a persistent failure cannot loop every second.
+    const interval = accessibilityRecovery === 'needed'
+      ? window.setInterval(checkAccessibilityRecovery, 1000)
+      : undefined;
     const handleFocus = () => checkAccessibilityRecovery();
     window.addEventListener('focus', handleFocus);
     return () => {
@@ -262,21 +266,21 @@ function App() {
     LogInfo('[frontend] App initial data load requested');
 
     LogInfo('[frontend] Setting up EventsOn for stateChanged');
-    const cleanup = EventsOn('stateChanged', (state: AppState) => {
+    const unsubscribers = [EventsOn('stateChanged', (state: AppState) => {
       LogInfo('[frontend] stateChanged event received: ' + state.state);
       setAppState(state);
-    });
+    })];
     LogInfo('[frontend] EventsOn setup complete');
-    EventsOn('historyChanged', (h: HistoryItem[]) => {
+    unsubscribers.push(EventsOn('historyChanged', (h: HistoryItem[]) => {
       setHistory(h);
       if (h.length > 0 && !selectedHistory) {
         setSelectedHistory(h[0]);
       }
       // Refresh stats when history changes (new transcription)
       GetStats().then((s: UsageStats) => setStats(s));
-    });
-    EventsOn('downloadProgress', (progress: DownloadProgress) => setDownloadProgress(progress));
-    EventsOn('downloadComplete', async (data: { model: string }) => {
+    }));
+    unsubscribers.push(EventsOn('downloadProgress', (progress: DownloadProgress) => setDownloadProgress(progress)));
+    unsubscribers.push(EventsOn('downloadComplete', async (data: { model: string }) => {
       setDownloadProgress(null);
       try {
         await SetModel(data.model);
@@ -285,11 +289,12 @@ function App() {
       }
       GetModels().then((models: ModelInfo[]) => setModels(models));
       GetState().then((state: AppState) => setAppState(state));
-    });
-    EventsOn('downloadError', (data: { model: string; error: string }) => {
+    }));
+    unsubscribers.push(EventsOn('downloadError', (data: { model: string; error: string }) => {
       setDownloadProgress(null);
       alert(`Download failed: ${data.error}`);
-    });
+    }));
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   useEffect(() => {
@@ -777,7 +782,7 @@ function App() {
 
         <div className="sidebar-footer">
           <div className="hotkey-hint">
-            <kbd>Right ⌥</kbd>
+            <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
             <span>to record</span>
           </div>
         </div>
