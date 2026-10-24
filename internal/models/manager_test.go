@@ -112,3 +112,46 @@ func TestDownloadModelFinalization(t *testing.T) {
 		})
 	}
 }
+
+func TestDifferentModelsDownloadIndependentlyAndFailureCanRetry(t *testing.T) {
+	previous := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = previous })
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	var requests atomic.Int32
+	http.DefaultClient = &http.Client{Transport: downloadTransport(func(r *http.Request) (*http.Response, error) {
+		attempt := requests.Add(1)
+		if attempt <= 2 {
+			entered <- r.URL.Path
+			<-release
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("unavailable")), Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("model")), ContentLength: 5, Header: make(http.Header)}, nil
+	})}
+	manager, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	for _, name := range []string{"tiny", "tiny.en"} {
+		go func(name string) { results <- manager.DownloadModel(name, nil) }(name)
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Error("different model downloads blocked each other")
+		}
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			t.Error("expected HTTP failure")
+		}
+	}
+	for _, name := range []string{"tiny", "tiny.en"} {
+		if err := manager.DownloadModel(name, nil); err != nil {
+			t.Fatalf("retry %s: %v", name, err)
+		}
+	}
+}

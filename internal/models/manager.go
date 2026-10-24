@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const (
@@ -38,7 +39,8 @@ func AvailableModels() []ModelDownloadInfo {
 
 // Manager handles model downloads and management
 type Manager struct {
-	modelsDir string
+	modelsDir     string
+	downloadLocks sync.Map // Model name -> *sync.Mutex; different models download independently.
 }
 
 // NewManager creates a new model manager
@@ -86,6 +88,13 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 		return fmt.Errorf("unknown model: %s", modelName)
 	}
 
+	// Repeated UI requests must not write or publish the same model at once.
+	// Waiters recheck the final file after the active download completes.
+	lock, _ := m.downloadLocks.LoadOrStore(modelName, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
 	// Create target path
 	targetPath := filepath.Join(m.modelsDir, modelInfo.Filename)
 
@@ -95,11 +104,11 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 	}
 
 	// Create temp file
-	tmpPath := targetPath + ".tmp"
-	out, err := os.Create(tmpPath)
+	out, err := os.CreateTemp(m.modelsDir, modelInfo.Filename+"-*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
+	tmpPath := out.Name()
 	defer func() {
 		// Windows will not rename or remove a file while our write handle is
 		// open. Close before cleanup on every failure path as well.
