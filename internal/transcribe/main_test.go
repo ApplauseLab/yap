@@ -30,6 +30,8 @@ func TestMain(m *testing.M) {
 		os.Exit(int(code))
 	case "console-probe":
 		os.Exit(writeConsoleState(os.Getenv("YAP_TEST_CONSOLE_LOG")))
+	case "console-launcher":
+		os.Exit(runConsoleLauncher())
 	case "owner":
 		os.Exit(runFakeOwner())
 	}

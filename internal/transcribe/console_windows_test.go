@@ -4,6 +4,7 @@ package transcribe
 
 import (
 	"os"
+	"os/exec"
 
 	"golang.org/x/sys/windows"
 )
@@ -20,6 +21,20 @@ func writeConsoleState(path string) int {
 	}
 	if err := os.WriteFile(path, []byte(state), 0o644); err != nil {
 		return 2
+	}
+	return 0
+}
+
+// runConsoleLauncher runs without a console, like Yap's GUI-subsystem
+// executable, and starts a console probe from there.
+func runConsoleLauncher() int {
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), testProcessRoleEnv+"=console-probe")
+	if os.Getenv("YAP_TEST_HIDE_CONSOLE") == "1" {
+		hideChildConsole(cmd)
+	}
+	if err := cmd.Run(); err != nil {
+		return 3
 	}
 	return 0
 }

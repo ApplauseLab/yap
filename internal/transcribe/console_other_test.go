@@ -13,3 +13,5 @@ func writeConsoleState(path string) int {
 	}
 	return 0
 }
+
+func runConsoleLauncher() int { return 2 }

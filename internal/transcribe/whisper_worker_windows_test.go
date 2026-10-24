@@ -9,18 +9,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestHideChildConsoleSuppressesConsoleWindow(t *testing.T) {
 	probe := func(hide bool) string {
 		log := filepath.Join(t.TempDir(), "console.log")
-		cmd := exec.Command(os.Args[0])
-		cmd.Env = append(os.Environ(), testProcessRoleEnv+"=console-probe", "YAP_TEST_CONSOLE_LOG="+log)
+		hideEnv := "YAP_TEST_HIDE_CONSOLE=0"
 		if hide {
-			hideChildConsole(cmd)
+			hideEnv = "YAP_TEST_HIDE_CONSOLE=1"
 		}
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), testProcessRoleEnv+"=console-launcher", hideEnv, "YAP_TEST_CONSOLE_LOG="+log)
+		// A detached launcher has no console, like Yap's GUI executable.
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
 		if err := cmd.Run(); err != nil {
 			t.Fatal(err)
 		}
@@ -42,11 +48,24 @@ func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelsDir := newTestModelsDir(t, tmpDir)
 	pidFile := filepath.Join(tmpDir, "worker.pid")
-	owner := startRoleProcess(t, os.Args[0], "owner",
+	consoleLog := filepath.Join(tmpDir, "console.log")
+	owner := exec.Command(os.Args[0])
+	owner.Env = append(os.Environ(),
+		testProcessRoleEnv+"=owner",
 		"YAP_TEST_OWNER_MODELS_DIR="+modelsDir,
 		"YAP_TEST_OWNER_SERVER="+copyTestBinary(t, tmpDir, "whisper-server"),
 		"YAP_TEST_OWNER_PID_FILE="+pidFile,
+		"YAP_TEST_CONSOLE_LOG="+consoleLog,
 	)
+	// Like Yap's GUI executable, the owner has no console of its own.
+	owner.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
+	if err := owner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = owner.Process.Kill()
+		_, _ = owner.Process.Wait()
+	})
 
 	var workerPID int
 	if !waitUntil(15*time.Second, func() bool {
@@ -61,6 +80,9 @@ func TestWorkerDiesWhenOwnerIsTerminated(t *testing.T) {
 	}
 	if !isWhisperServerProcess(workerPID) {
 		t.Fatalf("worker pid=%d is not running", workerPID)
+	}
+	if state, err := os.ReadFile(consoleLog); err != nil || string(state) != "none" {
+		t.Fatalf("worker console state = %q (%v), want none", state, err)
 	}
 
 	// TerminateProcess runs no Go shutdown code, like a crash or End task.
