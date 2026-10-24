@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type downloadTransport func(*http.Request) (*http.Response, error)
@@ -16,6 +19,44 @@ type interruptedDownload struct{}
 
 func (interruptedDownload) Read(p []byte) (int, error) {
 	return copy(p, "partial model"), io.ErrUnexpectedEOF
+}
+
+func TestConcurrentModelDownloadsShareOneTransfer(t *testing.T) {
+	previous := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = previous })
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	var requests atomic.Int32
+	http.DefaultClient = &http.Client{Transport: downloadTransport(func(*http.Request) (*http.Response, error) {
+		requests.Add(1)
+		once.Do(func() { close(entered) })
+		<-release
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("complete model fixture")), ContentLength: 22, Header: make(http.Header)}, nil
+	})}
+	manager, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 8)
+	for i := 0; i < cap(results); i++ {
+		go func() { results <- manager.DownloadModel("tiny", nil) }()
+	}
+	<-entered
+	// Keep the first transfer open while repeated UI requests arrive.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	for i := 0; i < cap(results); i++ {
+		if err := <-results; err != nil {
+			t.Errorf("concurrent download: %v", err)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("HTTP transfers = %d, want 1", got)
+	}
+	data, err := os.ReadFile(manager.GetModelPath("tiny"))
+	if err != nil || string(data) != "complete model fixture" {
+		t.Fatalf("model = %q, error = %v", data, err)
+	}
 }
 
 func TestDownloadModelFinalization(t *testing.T) {
