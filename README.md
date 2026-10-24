@@ -125,6 +125,14 @@ The app requires the following permissions:
 - **Microphone** — For audio recording
 - **Accessibility** — For global hotkey and auto-paste functionality
 
+### Debug Logs
+
+Yap writes debug logs to help investigate unexpected user behavior. Logs are kept for 7 days.
+
+- macOS: `~/Library/Application Support/yap/logs/yap-YYYY-MM-DD.log`
+- Windows: `%APPDATA%\yap\logs\yap-YYYY-MM-DD.log`
+- Linux: `~/.config/yap/logs/yap-YYYY-MM-DD.log`
+
 ## Documentation
 
 For comprehensive documentation, visit **[applauselab.ai/docs/yap](https://applauselab.ai/docs/yap/)**.

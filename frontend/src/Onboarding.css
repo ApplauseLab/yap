@@ -386,6 +386,18 @@
   border-radius: 8px;
 }
 
+.permission-warning {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255, 214, 10, 0.12);
+  border: 1px solid rgba(255, 214, 10, 0.28);
+  border-radius: 8px;
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .apikey-hint {
   font-size: 13px;
   color: var(--text-muted);

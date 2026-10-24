@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"yap/internal/logger"
+
 	"github.com/gordonklaus/portaudio"
 )
 
@@ -30,10 +32,10 @@ type Recorder struct {
 	mu            sync.Mutex
 	isRecording   bool
 	startTime     time.Time
-	deviceName    string         // Empty string means use system default
-	levelCallback func(float32)  // Callback for audio level updates
-	levelChan     chan float32   // Channel for level updates
-	stopLevelChan chan struct{}  // Signal to stop level goroutine
+	deviceName    string        // Empty string means use system default
+	levelCallback func(float32) // Callback for audio level updates
+	levelChan     chan float32  // Channel for level updates
+	stopLevelChan chan struct{} // Signal to stop level goroutine
 }
 
 // NewRecorder creates a new audio recorder
@@ -149,7 +151,7 @@ func (r *Recorder) Start() error {
 		device, findErr := findDeviceByName(r.deviceName)
 		if findErr != nil {
 			// Device not found, fall back to default
-			fmt.Printf("Warning: Device '%s' not found, using default\n", r.deviceName)
+			logger.Warning(fmt.Sprintf("Device %q not found, using default", r.deviceName))
 			stream, err = portaudio.OpenDefaultStream(
 				Channels, 0, SampleRate, FrameSize, inputBuffer,
 			)
@@ -180,7 +182,7 @@ func (r *Recorder) Start() error {
 	r.stream = stream
 	r.isRecording = true
 	r.startTime = time.Now()
-	
+
 	// Initialize level channels
 	r.levelChan = make(chan float32, 1) // Buffered, drop old values
 	r.stopLevelChan = make(chan struct{})
@@ -193,7 +195,7 @@ func (r *Recorder) Start() error {
 
 	// Start a goroutine to process level updates (prevents goroutine accumulation)
 	go r.levelLoop()
-	
+
 	// Start a goroutine to read audio data
 	go r.readLoop(inputBuffer)
 
@@ -204,9 +206,9 @@ func (r *Recorder) Start() error {
 func (r *Recorder) levelLoop() {
 	ticker := time.NewTicker(33 * time.Millisecond) // ~30fps
 	defer ticker.Stop()
-	
+
 	var lastLevel float32
-	
+
 	for {
 		select {
 		case <-r.stopLevelChan:
@@ -270,7 +272,7 @@ func (r *Recorder) readLoop(inputBuffer []float32) {
 		r.mu.Lock()
 		levelChan = r.levelChan
 		r.mu.Unlock()
-		
+
 		if levelChan != nil {
 			select {
 			case levelChan <- level:
@@ -284,18 +286,18 @@ func (r *Recorder) readLoop(inputBuffer []float32) {
 // Stop ends recording and returns the recorded audio as float32 samples
 func (r *Recorder) Stop() ([]float32, error) {
 	r.mu.Lock()
-	
+
 	if !r.isRecording {
 		r.mu.Unlock()
 		return nil, fmt.Errorf("not recording")
 	}
 
 	r.isRecording = false
-	
+
 	// Stop level loop first (this will exit the levelLoop goroutine)
 	stopChan := r.stopLevelChan
 	r.stopLevelChan = nil
-	
+
 	// Clear level channel reference (don't close - readLoop might still send)
 	r.levelChan = nil
 	r.levelCallback = nil
@@ -303,27 +305,27 @@ func (r *Recorder) Stop() ([]float32, error) {
 	// Stop and close stream
 	stream := r.stream
 	r.stream = nil
-	
+
 	// Return a copy of the buffer
 	result := make([]float32, len(r.buffer))
 	copy(result, r.buffer)
-	
+
 	// Clear buffer immediately
 	r.buffer = nil
-	
+
 	r.mu.Unlock()
 
 	// Close stop channel outside lock to signal levelLoop to exit
 	if stopChan != nil {
 		close(stopChan)
 	}
-	
+
 	// Stop and close PortAudio stream outside lock
 	if stream != nil {
 		stream.Stop()
 		stream.Close()
 	}
-	
+
 	return result, nil
 }
 
@@ -363,7 +365,7 @@ func ToWAV(samples []float32) ([]byte, error) {
 
 	// WAV header
 	dataSize := uint32(len(int16Samples) * 2) // 2 bytes per sample
-	fileSize := dataSize + 36                  // Header is 44 bytes, minus 8 for RIFF header
+	fileSize := dataSize + 36                 // Header is 44 bytes, minus 8 for RIFF header
 
 	// RIFF header
 	buf.WriteString("RIFF")
@@ -372,8 +374,8 @@ func ToWAV(samples []float32) ([]byte, error) {
 
 	// fmt chunk
 	buf.WriteString("fmt ")
-	binary.Write(buf, binary.LittleEndian, uint32(16))    // Chunk size
-	binary.Write(buf, binary.LittleEndian, uint16(1))     // Audio format (PCM)
+	binary.Write(buf, binary.LittleEndian, uint32(16)) // Chunk size
+	binary.Write(buf, binary.LittleEndian, uint16(1))  // Audio format (PCM)
 	binary.Write(buf, binary.LittleEndian, uint16(Channels))
 	binary.Write(buf, binary.LittleEndian, uint32(SampleRate))
 	binary.Write(buf, binary.LittleEndian, uint32(SampleRate*Channels*2)) // Byte rate

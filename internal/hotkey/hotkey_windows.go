@@ -9,6 +9,8 @@ import (
 	"sync"
 	"unsafe"
 
+	"yap/internal/logger"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -199,7 +201,7 @@ func (m *Manager) Register(cb Callback) error {
 		m.running = true
 		m.mu.Unlock()
 
-		fmt.Printf("Keyboard hook installed, hotkey: %s (code: %d)\n", m.hotkeyStr, m.hotkeyCode)
+		logger.Info(fmt.Sprintf("Keyboard hook installed, hotkey: %s (code: %d)", m.hotkeyStr, m.hotkeyCode))
 		started <- nil
 
 		// Message loop - required for the hook to work
@@ -265,7 +267,7 @@ func (m *Manager) SetHotkeyType(hotkeyName string) {
 	m.hotkeyStr = strings.ToLower(hotkeyName)
 	m.hotkeyCode = KeyNameToCode(m.hotkeyStr)
 
-	fmt.Printf("Hotkey set to: %s (code: %d)\n", m.hotkeyStr, m.hotkeyCode)
+	logger.Info(fmt.Sprintf("Hotkey set to: %s (code: %d)", m.hotkeyStr, m.hotkeyCode))
 }
 
 // SetCancelKey sets the cancel hotkey by name
@@ -276,7 +278,7 @@ func (m *Manager) SetCancelKey(keyName string) {
 	m.cancelStr = strings.ToLower(keyName)
 	m.cancelCode = KeyNameToCode(m.cancelStr)
 
-	fmt.Printf("Cancel key set to: %s (code: %d)\n", m.cancelStr, m.cancelCode)
+	logger.Info(fmt.Sprintf("Cancel key set to: %s (code: %d)", m.cancelStr, m.cancelCode))
 }
 
 // IsRegistered returns whether hotkey is registered

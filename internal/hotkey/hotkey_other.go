@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"yap/internal/logger"
 )
 
 // Callback is called when the hotkey is pressed
@@ -36,7 +38,7 @@ func (m *Manager) Register(callback Callback) error {
 	m.running = true
 
 	// Hotkeys not supported on this platform
-	fmt.Println("Warning: Hotkeys are not supported on this platform")
+	logger.Warning("Hotkeys are not supported on this platform")
 	return nil
 }
 

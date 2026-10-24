@@ -58,6 +58,10 @@ export function GetHistory() {
   return window['go']['main']['App']['GetHistory']();
 }
 
+export function GetLogsDir() {
+  return window['go']['main']['App']['GetLogsDir']();
+}
+
 export function GetModels() {
   return window['go']['main']['App']['GetModels']();
 }

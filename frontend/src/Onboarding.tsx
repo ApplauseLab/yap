@@ -16,7 +16,7 @@ import {
   GetRecordingHotkeyDisplayName,
   GetPlatform,
 } from '../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
+import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
 
 interface ModelInfo {
   name: string;
@@ -49,6 +49,10 @@ type Provider = 'local' | 'openai';
 type HotkeyTestState = 'waiting' | 'recording' | 'success';
 
 export function Onboarding({ onComplete }: OnboardingProps) {
+  useEffect(() => {
+    LogInfo('[frontend] Onboarding component mounted');
+  }, []);
+
   const [step, setStep] = useState<Step>('welcome');
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('base.en');
@@ -63,6 +67,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [platform, setPlatform] = useState<string>('darwin');
   const [hotkeyTestState, setHotkeyTestState] = useState<HotkeyTestState>('waiting');
   const [testTranscript, setTestTranscript] = useState<string>('');
+  const [hotkeyTestError, setHotkeyTestError] = useState<string>('');
   const hotkeyTestStateRef = useRef<HotkeyTestState>('waiting');
 
   useEffect(() => {
@@ -92,8 +97,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       setDownloadError(null);
     };
 
-    const completeHandler = () => {
+    const completeHandler = async (data: { model: string }) => {
       setDownloadProgress(null);
+      try {
+        await SetModel(data.model);
+      } catch (err) {
+        setDownloadError(String(err));
+        return;
+      }
       // Refresh models list
       GetModels().then((modelList: ModelInfo[]) => {
         setModels(modelList);
@@ -107,14 +118,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       setDownloadError(data.error);
     };
 
-    EventsOn('downloadProgress', progressHandler);
-    EventsOn('downloadComplete', completeHandler);
-    EventsOn('downloadError', errorHandler);
+    const cleanupProgress = EventsOn('downloadProgress', progressHandler);
+    const cleanupComplete = EventsOn('downloadComplete', completeHandler);
+    const cleanupError = EventsOn('downloadError', errorHandler);
 
     return () => {
-      EventsOff('downloadProgress');
-      EventsOff('downloadComplete');
-      EventsOff('downloadError');
+      cleanupProgress();
+      cleanupComplete();
+      cleanupError();
     };
   }, []);
 
@@ -142,9 +153,9 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   }, [apiKey]);
 
   const handleModelSelect = useCallback(async () => {
-    await SetModel(selectedModel);
     const model = models.find(m => m.name === selectedModel);
     if (model?.downloaded) {
+      await SetModel(selectedModel);
       // Model already downloaded, skip to mic permission request
       setStep('micRequest');
     } else {
@@ -159,10 +170,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setDownloadError(null);
     await DownloadModel(selectedModel);
   }, [selectedModel]);
-
-  const handleSkipDownload = useCallback(() => {
-    setStep('micRequest');
-  }, []);
 
   const handleCheckMicPermission = useCallback(async () => {
     const status = await CheckMicrophonePermission();
@@ -197,6 +204,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     }
   }, [step, handleCheckMicPermission]);
 
+  // Skip the microphone prompt when macOS already has a grant for this app.
+  useEffect(() => {
+    if (step === 'micRequest' && micPermissionStatus === 'granted') {
+      setStep('micSuccess');
+    }
+  }, [step, micPermissionStatus]);
+
   // Poll for accessibility permission when on access request step
   useEffect(() => {
     if (step === 'accessRequest') {
@@ -218,29 +232,33 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       // Reset test state when entering this step
       setHotkeyTestState('waiting');
       setTestTranscript('');
+      setHotkeyTestError('');
       hotkeyTestStateRef.current = 'waiting';
       
       // Make sure hotkey is registered
-      ReregisterHotkey().catch(console.error);
+      ReregisterHotkey().catch((err) => LogError(`[frontend] ReregisterHotkey failed: ${err}`));
       
       const stateHandler = (state: AppState) => {
         if (state.state === 'recording' && hotkeyTestStateRef.current === 'waiting') {
           setHotkeyTestState('recording');
+          setHotkeyTestError('');
           hotkeyTestStateRef.current = 'recording';
-        } else if (state.state === 'ready' && hotkeyTestStateRef.current === 'recording') {
+        } else if (state.state === 'transcribing' && hotkeyTestStateRef.current === 'recording') {
           setHotkeyTestState('success');
           hotkeyTestStateRef.current = 'success';
-          // Capture the transcript from the test recording
+        } else if (state.state === 'ready' && hotkeyTestStateRef.current === 'success') {
           if (state.lastTranscript) {
             setTestTranscript(state.lastTranscript);
           }
+        } else if (state.state === 'error' && hotkeyTestStateRef.current === 'recording') {
+          setHotkeyTestState('waiting');
+          setHotkeyTestError(state.error || 'Recording failed. Check microphone permission and try again.');
+          hotkeyTestStateRef.current = 'waiting';
         }
       };
       
-      EventsOn('stateChanged', stateHandler);
-      return () => {
-        EventsOff('stateChanged');
-      };
+      const cleanup = EventsOn('stateChanged', stateHandler);
+      return cleanup;
     }
   }, [step]);
 
@@ -400,7 +418,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 <div className="model-desc">
                   {model.name === 'tiny.en' && 'Fastest option, great for quick notes and simple dictation'}
                   {model.name === 'base.en' && 'Best balance of speed and accuracy for everyday use'}
-                  {model.name === 'small.en' && 'Higher accuracy for detailed transcription, slightly slower'}
+                  {model.name === 'small.en' && 'Higher accuracy for detailed transcription, but much slower on CPU'}
                 </div>
               </div>
               {model.downloaded && (
@@ -477,12 +495,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           ) : downloadProgress ? (
             <>
               <h2 className="download-title">Downloading {model?.displayName}</h2>
-              <p className="download-subtitle">{model?.size} — {progress.toFixed(0)}%</p>
+              <p className="download-subtitle">A local model is required before Yap can transcribe offline. {model?.size} - {progress.toFixed(0)}%</p>
             </>
           ) : (
             <>
               <h2 className="download-title">Preparing Download</h2>
-              <p className="download-subtitle">Setting up {model?.displayName}...</p>
+              <p className="download-subtitle">A local model is required before Yap can transcribe offline.</p>
             </>
           )}
         </div>
@@ -490,18 +508,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         <div className="step-actions">
           {downloadError ? (
             <>
-              <button className="secondary-button" onClick={handleSkipDownload}>
-                Skip for Now
+              <button className="secondary-button" onClick={() => setStep('model')}>
+                Back
               </button>
               <button className="primary-button" onClick={handleRetryDownload}>
                 Retry Download
               </button>
             </>
-          ) : (
-            <button className="secondary-button" onClick={handleSkipDownload}>
-              Skip for Now
-            </button>
-          )}
+          ) : null}
         </div>
       </div>
     );
@@ -517,11 +531,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   }, []);
 
   const renderMicRequest = () => {
-    // If already granted, auto-advance
-    if (micPermissionStatus === 'granted') {
-      // Use effect will handle this, but also allow manual continue
-    }
-    
+    const micDenied = micPermissionStatus === 'denied';
+
     return (
       <div className="onboarding-step mic-request-step">
         {/* Pixel-art microphone illustration */}
@@ -540,17 +551,27 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         </div>
         
         <div className="step-header">
-          <h2>Yap needs your microphone</h2>
-          <p>To transcribe your voice, Yap needs access to your microphone. Click below and select "Allow" in the system dialog.</p>
+          <h2>{micDenied ? 'Microphone access is blocked' : 'Yap needs your microphone'}</h2>
+          <p>
+            {micDenied
+              ? 'macOS will not show the permission dialog again. Open System Settings and enable Microphone access for Yap, then come back and re-check.'
+              : 'To transcribe your voice, Yap needs access to your microphone. Click below and select "Allow" in the system dialog.'}
+          </p>
         </div>
+
+        {micDenied && (
+          <div className="permission-warning">
+            System Settings → Privacy & Security → Microphone → Yap
+          </div>
+        )}
         
         <div className="step-actions">
           <button className="secondary-button" onClick={() => setStep(selectedProvider === 'openai' ? 'apikey' : 'model')}>
             Back
           </button>
-          {micPermissionStatus === 'granted' ? (
-            <button className="primary-button" onClick={() => setStep('micSuccess')}>
-              Continue
+          {micDenied ? (
+            <button className="primary-button" onClick={handleCheckMicPermission}>
+              Re-check Permission
             </button>
           ) : (
             <button className="primary-button" onClick={handleMicPermissionRequest}>
@@ -660,8 +681,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         </div>
         
         <p className="access-instructions">
-          Click the button below to open System Settings, then toggle <strong>Yap</strong> on in the Accessibility list.
+          Click the button below to open System Settings, then toggle <strong>Yap</strong> on in the Accessibility list. If Yap already appears enabled but this step does not advance, toggle it off and back on.
         </p>
+
+        {accessibilityStatus === 'denied' && (
+          <div className="permission-warning">
+            System Settings → Privacy & Security → Accessibility → Yap
+          </div>
+        )}
         
         <div className="step-actions">
           <button className="secondary-button" onClick={() => setStep('micSuccess')}>
@@ -670,6 +697,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           <button className="primary-button" onClick={handleRequestAccessibilityPermission}>
             Open Accessibility Settings
           </button>
+          {accessibilityStatus === 'denied' && (
+            <button className="secondary-button" onClick={handleCheckAccessibilityPermission}>
+              Re-check Permission
+            </button>
+          )}
         </div>
         
         {accessibilityStatus === 'granted' && (
@@ -767,7 +799,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
       {hotkeyTestState === 'waiting' && (
         <div className="hotkey-test-hint">
-          <p>Having trouble? Make sure you granted Accessibility permission.</p>
+          <p>{hotkeyTestError || 'Having trouble? Make sure you granted Accessibility permission.'}</p>
         </div>
       )}
       

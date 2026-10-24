@@ -31,6 +31,8 @@ export function GetCurrentAudioInputDevice():Promise<string>;
 
 export function GetHistory():Promise<Array<main.HistoryItem>>;
 
+export function GetLogsDir():Promise<string>;
+
 export function GetModels():Promise<Array<main.ModelInfo>>;
 
 export function GetPlatform():Promise<string>;

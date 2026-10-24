@@ -63,6 +63,10 @@ static int requestAccessibilityPermissions(void) {
         NSLog(@"IMPORTANT: Please grant Accessibility permissions to enable hotkey features");
         NSLog(@"Go to: System Preferences > Privacy & Security > Accessibility");
         NSLog(@"Add and enable this application");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"];
+            [[NSWorkspace sharedWorkspace] openURL:url];
+        });
     }
     return trusted;
 }
@@ -133,19 +137,19 @@ static void stopAllMonitoring(void) {
 
 static void startMonitoring(void) {
     stopAllMonitoring();
-    
+
     // Check accessibility permissions first
     if (!hasAccessibilityPermissions()) {
         NSLog(@"Cannot start monitoring without accessibility permissions");
         return;
     }
-    
+
     // Monitor for modifier keys (flagsChanged events)
     gEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged
         handler:^(NSEvent *event) {
             UInt16 keyCode = [event keyCode];
             NSEventModifierFlags flags = [event modifierFlags];
-            
+
             // Check hotkey (if it's a modifier)
             if (gHotkeyIsModifier && keyCode == gCurrentHotkeyCode) {
                 NSEventModifierFlags modFlag = getModifierFlag(keyCode);
@@ -158,7 +162,7 @@ static void startMonitoring(void) {
                     gHotkeyKeyDown = NO;
                 }
             }
-            
+
             // Check cancel key (if it's a modifier)
             if (gCancelKeyEnabled && gCancelIsModifier && keyCode == gCurrentCancelCode) {
                 NSEventModifierFlags modFlag = getModifierFlag(keyCode);
@@ -167,43 +171,43 @@ static void startMonitoring(void) {
                 }
             }
         }];
-    
+
     // Monitor for regular keys (keyDown events)
     gKeyEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown
         handler:^(NSEvent *event) {
             UInt16 keyCode = [event keyCode];
-            
+
             // Check hotkey (if it's NOT a modifier)
             if (!gHotkeyIsModifier && keyCode == gCurrentHotkeyCode) {
                 goHotkeyPressed();
             }
-            
+
             // Check cancel key (if it's NOT a modifier)
             if (gCancelKeyEnabled && !gCancelIsModifier && keyCode == gCurrentCancelCode) {
                 goCancelPressed();
             }
         }];
-    
+
     // Local monitor for regular keys when this app has focus
     gLocalKeyEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
         handler:^NSEvent *(NSEvent *event) {
             UInt16 keyCode = [event keyCode];
-            
+
             // Check hotkey (if it's NOT a modifier)
             if (!gHotkeyIsModifier && keyCode == gCurrentHotkeyCode) {
                 goHotkeyPressed();
                 return nil; // Consume event
             }
-            
+
             // Check cancel key (if it's NOT a modifier)
             if (gCancelKeyEnabled && !gCancelIsModifier && keyCode == gCurrentCancelCode) {
                 goCancelPressed();
                 return nil; // Consume event
             }
-            
+
             return event;
         }];
-    
+
     // Also add local monitor for modifier keys (flagsChanged) when app has focus
     // This ensures modifier hotkeys work even when the app window is focused
     if (gLocalFlagsMonitor != nil) {
@@ -214,7 +218,7 @@ static void startMonitoring(void) {
         handler:^NSEvent *(NSEvent *event) {
             UInt16 keyCode = [event keyCode];
             NSEventModifierFlags flags = [event modifierFlags];
-            
+
             // Check hotkey (if it's a modifier)
             if (gHotkeyIsModifier && keyCode == gCurrentHotkeyCode) {
                 NSEventModifierFlags modFlag = getModifierFlag(keyCode);
@@ -227,7 +231,7 @@ static void startMonitoring(void) {
                     gHotkeyKeyDown = NO;
                 }
             }
-            
+
             // Check cancel key (if it's a modifier)
             if (gCancelKeyEnabled && gCancelIsModifier && keyCode == gCurrentCancelCode) {
                 NSEventModifierFlags modFlag = getModifierFlag(keyCode);
@@ -235,10 +239,10 @@ static void startMonitoring(void) {
                     goCancelPressed();
                 }
             }
-            
+
             return event;
         }];
-    
+
     NSLog(@"Key monitoring started - hotkey: %d, cancel: %d", gCurrentHotkeyCode, gCurrentCancelCode);
 }
 
@@ -271,6 +275,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"yap/internal/logger"
 )
 
 var (
@@ -305,11 +311,11 @@ type Callback func()
 
 // Manager handles global hotkey registration
 type Manager struct {
-	mu         sync.Mutex
-	running    bool
-	stopC      chan struct{}
-	hotkeyStr  string
-	cancelStr  string
+	mu        sync.Mutex
+	running   bool
+	stopC     chan struct{}
+	hotkeyStr string
+	cancelStr string
 }
 
 // NewManager creates a new hotkey manager
@@ -329,6 +335,10 @@ func (m *Manager) Register(cb Callback) error {
 		return nil
 	}
 
+	if !HasAccessibilityPermissions() {
+		return fmt.Errorf("accessibility permission not granted")
+	}
+
 	callbackMu.Lock()
 	hotkeyCallback = cb
 	callbackMu.Unlock()
@@ -336,7 +346,7 @@ func (m *Manager) Register(cb Callback) error {
 	// Set the hotkey code
 	keyCode := KeyNameToCode(m.hotkeyStr)
 	C.setHotkeyCode(C.UInt16(keyCode))
-	
+
 	// Set the cancel key code
 	cancelCode := KeyNameToCode(m.cancelStr)
 	C.setCancelCode(C.UInt16(cancelCode))
@@ -386,28 +396,28 @@ func (m *Manager) Unregister() error {
 func (m *Manager) SetHotkeyType(hotkeyName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.hotkeyStr = strings.ToLower(hotkeyName)
 	keyCode := KeyNameToCode(m.hotkeyStr)
 	C.setHotkeyCode(C.UInt16(keyCode))
-	
+
 	if m.running {
 		C.startMonitoring()
 	}
-	
-	fmt.Printf("Hotkey set to: %s (code: %d)\n", m.hotkeyStr, keyCode)
+
+	logger.Info(fmt.Sprintf("Hotkey set to: %s (code: %d)", m.hotkeyStr, keyCode))
 }
 
 // SetCancelKey sets the cancel hotkey by name
 func (m *Manager) SetCancelKey(keyName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.cancelStr = strings.ToLower(keyName)
 	cancelCode := KeyNameToCode(m.cancelStr)
 	C.setCancelCode(C.UInt16(cancelCode))
-	
-	fmt.Printf("Cancel key set to: %s (code: %d)\n", m.cancelStr, cancelCode)
+
+	logger.Info(fmt.Sprintf("Cancel key set to: %s (code: %d)", m.cancelStr, cancelCode))
 }
 
 // IsRegistered returns whether hotkey is registered
@@ -422,14 +432,14 @@ func (m *Manager) EnableCancelKey(cb func()) {
 	cancelCallbackMu.Lock()
 	cancelCallback = cb
 	cancelCallbackMu.Unlock()
-	
+
 	C.enableCancelKey()
 }
 
 // DisableCancelKey stops monitoring for the cancel key
 func (m *Manager) DisableCancelKey() {
 	C.disableCancelKey()
-	
+
 	cancelCallbackMu.Lock()
 	cancelCallback = nil
 	cancelCallbackMu.Unlock()
@@ -474,7 +484,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x3F
 	case "capslock":
 		return 0x39
-	
+
 	// Special keys
 	case "escape", "esc":
 		return 0x35
@@ -488,7 +498,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x33
 	case "forwarddelete":
 		return 0x75
-	
+
 	// Arrow keys
 	case "left", "arrowleft":
 		return 0x7B
@@ -498,7 +508,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x7E
 	case "down", "arrowdown":
 		return 0x7D
-	
+
 	// Function keys
 	case "f1":
 		return 0x7A
@@ -524,7 +534,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x67
 	case "f12":
 		return 0x6F
-	
+
 	// Letter keys
 	case "a":
 		return 0x00
@@ -578,7 +588,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x10
 	case "z":
 		return 0x06
-	
+
 	// Number keys
 	case "0":
 		return 0x1D
@@ -600,7 +610,7 @@ func KeyNameToCode(name string) uint16 {
 		return 0x1C
 	case "9":
 		return 0x19
-	
+
 	default:
 		return 0x3D // Default to right option
 	}

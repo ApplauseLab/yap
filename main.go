@@ -3,9 +3,11 @@ package main
 import (
 	"embed"
 
+	filelogger "yap/internal/logger"
 	"yap/internal/tray"
 
 	"github.com/wailsapp/wails/v2"
+	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -14,8 +16,22 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+var appVersion = "dev"
+
 func main() {
+	if err := filelogger.Init(); err != nil {
+		println("Warning: Failed to initialize file logger:", err.Error())
+	}
+	logger := filelogger.GetDefault()
+	defer func() {
+		if logger != nil {
+			logger.Close()
+		}
+	}()
+	filelogger.Info("Yap app version: " + appVersion)
+
 	app := NewApp()
+	filelogger.Info("App instance created")
 
 	// Start systray (non-blocking with external loop)
 	tray.Start(tray.Callbacks{
@@ -32,9 +48,17 @@ func main() {
 			app.QuitApp()
 		},
 	})
+	filelogger.Info("System tray started")
 
 	// Set the tray reference in app
 	app.SetTray(tray.SetRecording)
+	filelogger.Info("Starting Wails runtime")
+
+	// A nil *FileLogger stored in the interface would silently drop Wails logs.
+	var wailsLogger wailslogger.Logger
+	if logger != nil {
+		wailsLogger = logger
+	}
 
 	err := wails.Run(&options.App{
 		Title:     "Yap",
@@ -45,11 +69,15 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 22, G: 19, B: 31, A: 255},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		Frameless:        false,
-		StartHidden:      false,
+		BackgroundColour:   &options.RGBA{R: 22, G: 19, B: 31, A: 255},
+		OnStartup:          app.startup,
+		OnDomReady:         app.domReady,
+		OnShutdown:         app.shutdown,
+		Logger:             wailsLogger,
+		LogLevel:           wailslogger.DEBUG,
+		LogLevelProduction: wailslogger.DEBUG,
+		Frameless:          false,
+		StartHidden:        false,
 		Bind: []interface{}{
 			app,
 		},
@@ -64,10 +92,10 @@ func main() {
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
-		About: &mac.AboutInfo{
-			Title:   "Yap",
-			Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv0.2.0",
-		},
+			About: &mac.AboutInfo{
+				Title:   "Yap",
+				Message: "Speech-to-Text Desktop App\nby applauselab.ai\nv" + appVersion,
+			},
 		},
 	})
 

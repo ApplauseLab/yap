@@ -11,6 +11,9 @@ package system
 #include <Cocoa/Cocoa.h>
 #include <unistd.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 // Check if we have accessibility permissions
 int hasAccessibilityForPaste(void) {
     // Check without prompting
@@ -49,13 +52,13 @@ void activatePreviousApp(void) {
 int simulatePasteKeystroke(void) {
     NSLog(@"simulatePasteKeystroke: starting");
     NSLog(@"simulatePasteKeystroke: current frontmost = %@", getFrontmostAppName());
-    
+
     // Check accessibility first
     if (!AXIsProcessTrusted()) {
         NSLog(@"simulatePasteKeystroke: ERROR - No accessibility permissions!");
         return 0;
     }
-    
+
     // Activate the previous app first (in case our app took focus)
     if (gPreviousFrontApp) {
         NSLog(@"simulatePasteKeystroke: activating previous app %@", gPreviousFrontApp.localizedName);
@@ -63,39 +66,45 @@ int simulatePasteKeystroke(void) {
         usleep(100000); // 100ms for activation to complete
         NSLog(@"simulatePasteKeystroke: after activation, frontmost = %@", getFrontmostAppName());
     }
-    
+
     // Create key down event for 'v' with Command modifier
     CGEventRef keyDown = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)kVK_ANSI_V, true);
     CGEventRef keyUp = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)kVK_ANSI_V, false);
-    
+
     if (keyDown == NULL || keyUp == NULL) {
         NSLog(@"simulatePasteKeystroke: failed to create events");
         if (keyDown) CFRelease(keyDown);
         if (keyUp) CFRelease(keyUp);
         return 0;
     }
-    
+
     // Set Command modifier flag
     CGEventSetFlags(keyDown, kCGEventFlagMaskCommand);
     CGEventSetFlags(keyUp, kCGEventFlagMaskCommand);
-    
+
     // Post events
     NSLog(@"simulatePasteKeystroke: posting keyDown");
     CGEventPost(kCGHIDEventTap, keyDown);
     usleep(50000); // 50ms delay
     NSLog(@"simulatePasteKeystroke: posting keyUp");
     CGEventPost(kCGHIDEventTap, keyUp);
-    
+
     // Release
     CFRelease(keyDown);
     CFRelease(keyUp);
     NSLog(@"simulatePasteKeystroke: done");
     return 1;
 }
+
+#pragma clang diagnostic pop
 */
 import "C"
 
-import "fmt"
+import (
+	"fmt"
+
+	"yap/internal/logger"
+)
 
 // SaveFrontmostApp saves the current frontmost app (call before showing overlay)
 func SaveFrontmostApp() {
@@ -104,19 +113,19 @@ func SaveFrontmostApp() {
 
 // simulatePasteMacOSNative uses CGEvent to simulate Cmd+V (more reliable than AppleScript)
 func simulatePasteMacOSNative() error {
-	fmt.Println("simulatePasteMacOSNative: checking accessibility...")
+	logger.Debug("simulatePasteMacOSNative: checking accessibility")
 	hasAccess := C.hasAccessibilityForPaste()
-	fmt.Printf("simulatePasteMacOSNative: hasAccessibility=%d\n", hasAccess)
-	
+	logger.Debug(fmt.Sprintf("simulatePasteMacOSNative: hasAccessibility=%d", hasAccess))
+
 	if hasAccess == 0 {
-		fmt.Println("ERROR: No accessibility permissions for paste! Please grant in System Settings > Privacy & Security > Accessibility")
+		logger.Error("No accessibility permissions for paste")
 		return fmt.Errorf("no accessibility permissions")
 	}
-	
-	fmt.Println("simulatePasteMacOSNative: calling C function")
+
+	logger.Debug("simulatePasteMacOSNative: calling C function")
 	result := C.simulatePasteKeystroke()
-	fmt.Printf("simulatePasteMacOSNative: result=%d\n", result)
-	
+	logger.Debug(fmt.Sprintf("simulatePasteMacOSNative: result=%d", result))
+
 	if result == 0 {
 		return fmt.Errorf("paste keystroke failed")
 	}

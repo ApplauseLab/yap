@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"yap/internal/logger"
 )
 
 //go:embed start.mp3 stop.mp3
@@ -56,41 +58,41 @@ func Cleanup() {
 // PlayStart plays the recording start sound (non-blocking)
 func PlayStart() {
 	if startSoundPath == "" {
-		fmt.Println("PlayStart: no sound path")
+		logger.Debug("PlayStart: no sound path")
 		return
 	}
-	fmt.Printf("PlayStart: playing %s\n", startSoundPath)
+	logger.Debug(fmt.Sprintf("PlayStart: playing %s", startSoundPath))
 	// Use afplay with reduced volume (0.6)
 	cmd := exec.Command("afplay", "-v", "0.6", startSoundPath)
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("PlayStart error: %v\n", err)
+		logger.Warning(fmt.Sprintf("PlayStart error: %v", err))
 	}
 }
 
 // PlayStop plays the recording stop sound (non-blocking)
 func PlayStop() {
 	if stopSoundPath == "" {
-		fmt.Println("PlayStop: no sound path")
+		logger.Debug("PlayStop: no sound path")
 		return
 	}
-	fmt.Printf("PlayStop: playing %s\n", stopSoundPath)
+	logger.Debug(fmt.Sprintf("PlayStop: playing %s", stopSoundPath))
 	// Use afplay with reduced volume (0.6)
 	cmd := exec.Command("afplay", "-v", "0.6", stopSoundPath)
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("PlayStop error: %v\n", err)
+		logger.Warning(fmt.Sprintf("PlayStop error: %v", err))
 	}
 }
 
 // PlayStartSync plays the recording start sound and waits for it to finish
 func PlayStartSync() {
 	if startSoundPath == "" {
-		fmt.Println("PlayStartSync: no sound path")
+		logger.Debug("PlayStartSync: no sound path")
 		return
 	}
-	fmt.Printf("PlayStartSync: playing %s\n", startSoundPath)
+	logger.Debug(fmt.Sprintf("PlayStartSync: playing %s", startSoundPath))
 	cmd := exec.Command("afplay", "-v", "0.6", startSoundPath)
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("PlayStartSync error: %v\n", err)
+		logger.Warning(fmt.Sprintf("PlayStartSync error: %v", err))
 	}
 }
 

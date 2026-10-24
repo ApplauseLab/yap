@@ -600,6 +600,15 @@ body {
   background: var(--bg-hover);
 }
 
+.action-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.action-item.disabled:hover {
+  background: var(--bg-sidebar);
+}
+
 .action-icon {
   width: 32px;
   height: 32px;
@@ -924,6 +933,13 @@ body {
   color: var(--success);
 }
 
+.hotkey-status p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 .settings-footer {
   display: flex;
   justify-content: space-between;
@@ -1173,6 +1189,177 @@ body {
   justify-content: center;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* Accessibility recovery after app updates or permission revocation */
+.accessibility-recovery {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 48px 32px 32px;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(0, 255, 78, 0.14), transparent 48%),
+    linear-gradient(145deg, #18191a 0%, var(--bg-dark) 58%, #151716 100%);
+  --wails-draggable: drag;
+}
+
+.accessibility-recovery-card {
+  width: min(620px, 100%);
+  padding: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: rgba(44, 44, 46, 0.88);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(22px);
+  --wails-draggable: no-drag;
+}
+
+.accessibility-recovery-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 28px;
+  border: 1px solid rgba(0, 255, 78, 0.3);
+  border-radius: 18px;
+  color: var(--accent);
+  background: rgba(0, 255, 78, 0.09);
+}
+
+.accessibility-recovery-icon.complete {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.12);
+}
+
+.accessibility-recovery-icon svg {
+  width: 29px;
+  height: 29px;
+}
+
+.accessibility-recovery-copy {
+  max-width: 520px;
+}
+
+.accessibility-recovery-eyebrow {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.accessibility-recovery-copy h1 {
+  margin-bottom: 14px;
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+
+.accessibility-recovery-copy > p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.accessibility-recovery-steps {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px 14px;
+  margin-top: 28px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.accessibility-recovery-steps span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #061208;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.accessibility-recovery-steps p {
+  align-self: center;
+  color: #d6d6d8;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.accessibility-recovery-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.accessibility-recovery-actions button {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.accessibility-recovery-actions button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.recovery-primary {
+  border: 1px solid var(--accent);
+  color: #071109;
+  background: var(--accent);
+}
+
+.recovery-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.recovery-secondary {
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recovery-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.accessibility-recovery-error {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 69, 58, 0.25);
+  border-radius: 10px;
+  color: #ff9a94;
+  background: rgba(255, 69, 58, 0.08);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .accessibility-recovery {
+    place-items: start center;
+    padding: 54px 18px 24px;
+  }
+
+  .accessibility-recovery-card {
+    padding: 28px 22px;
+    border-radius: 19px;
+  }
+
+  .accessibility-recovery-actions {
+    flex-direction: column;
+  }
 }
 
 /* App loading state */
