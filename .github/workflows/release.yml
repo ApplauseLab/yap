@@ -93,7 +93,9 @@ jobs:
           cp /opt/homebrew/bin/whisper-cli /opt/homebrew/bin/whisper-server "$APP/Contents/Resources/bin/"
           chmod +x "$APP/Contents/Resources/bin/whisper-cli" "$APP/Contents/Resources/bin/whisper-server"
 
-          cp -L /opt/homebrew/opt/whisper-cpp/lib/libwhisper*.dylib "$APP/Contents/Resources/lib/"
+          # Homebrew renamed whisper-cpp to whisper.cpp; resolve the prefix instead of hardcoding it.
+          WHISPER_PREFIX="$(brew --prefix whisper-cpp)"
+          cp -L "$WHISPER_PREFIX"/lib/libwhisper*.dylib "$APP/Contents/Resources/lib/"
           cp -L /opt/homebrew/opt/ggml/lib/libggml*.dylib "$APP/Contents/Resources/lib/"
           cp -L /opt/homebrew/opt/libomp/lib/libomp.dylib "$APP/Contents/Resources/lib/"
           cp -L /opt/homebrew/opt/ggml/libexec/* "$APP/Contents/Resources/libexec/"
@@ -105,7 +107,7 @@ jobs:
 
           for bin in "$APP/Contents/Resources/bin"/* "$APP/Contents/Resources/lib"/*.dylib "$APP/Contents/Resources/libexec"/*; do
             [ -f "$bin" ] || continue
-            otool -L "$bin" | awk '/\/opt\/homebrew\/(opt|Cellar)\/(whisper-cpp|ggml|libomp)\// {print $1}' | while read -r dep; do
+            otool -L "$bin" | awk '/\/opt\/homebrew\/(opt|Cellar)\/(whisper-cpp|whisper\.cpp|ggml|libomp)\// {print $1}' | while read -r dep; do
               base="$(basename "$dep")"
               install_name_tool -change "$dep" "@loader_path/../lib/$base" "$bin" || true
             done
@@ -380,6 +382,8 @@ jobs:
       - name: Create DEB package
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          # Debian versions must start with a digit; build-only runs use "dev".
+          [[ "${VERSION}" =~ ^[0-9] ]] || VERSION="0.0.0~${VERSION}"
           PKG_NAME="yap_${VERSION}_amd64"
           mkdir -p "${PKG_NAME}/DEBIAN" "${PKG_NAME}/usr/bin" "${PKG_NAME}/usr/lib/yap" "${PKG_NAME}/usr/share/applications" "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps"
           cp build/bin/yap "${PKG_NAME}/usr/bin/"
@@ -513,6 +517,8 @@ jobs:
       - name: Create DEB package
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          # Debian versions must start with a digit; build-only runs use "dev".
+          [[ "${VERSION}" =~ ^[0-9] ]] || VERSION="0.0.0~${VERSION}"
           PKG_NAME="yap_${VERSION}_amd64"
           mkdir -p "${PKG_NAME}/DEBIAN" "${PKG_NAME}/usr/bin" "${PKG_NAME}/usr/lib/yap" "${PKG_NAME}/usr/share/applications" "${PKG_NAME}/usr/share/icons/hicolor/256x256/apps"
           cp build/bin/yap "${PKG_NAME}/usr/bin/"
