@@ -135,6 +135,8 @@ Yap writes debug logs to help investigate unexpected user behavior. Logs are kep
 - Windows: `%APPDATA%\yap\logs\yap-YYYY-MM-DD.log`
 - Linux: `~/.config/yap/logs/yap-YYYY-MM-DD.log`
 
+If Yap quits unexpectedly, the crash output (panic or native crash stack traces) is in `yap-stderr-YYYY-MM-DD.log` in the same folder, and the next launch logs a warning that the previous session did not shut down cleanly.
+
 ## Documentation
 
 For comprehensive documentation, visit **[applauselab.ai/docs/yap](https://applauselab.ai/docs/yap/)**.

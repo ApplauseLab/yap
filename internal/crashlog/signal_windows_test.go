@@ -1,0 +1,3 @@
+package crashlog
+
+func raiseAbort() {}
