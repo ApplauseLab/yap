@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
+import { formatHotkeyLabel, formatHotkeyShortLabel } from './hotkeyLabels';
 import { Onboarding } from './Onboarding';
 import { ModelsLibrary } from './ModelsLibrary';
 import { useModelDownload } from './useModelDownload';
@@ -603,62 +604,8 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isCapturingHotkey, isCapturingCancelKey]);
 
-  // Format key name for display
-  const formatKeyDisplay = (keyName: string): string => {
-    const k = keyName.toLowerCase();
-    switch (k) {
-      case 'rightoption': case 'rightalt': return platform === 'darwin' ? 'Right ⌥' : 'Right Alt';
-      case 'leftoption': case 'leftalt': return platform === 'darwin' ? 'Left ⌥' : 'Left Alt';
-      case 'rightcommand': case 'rightcmd': return platform === 'darwin' ? 'Right ⌘' : 'Right Win';
-      case 'leftcommand': case 'leftcmd': return platform === 'darwin' ? 'Left ⌘' : 'Left Win';
-      case 'rightctrl': case 'rightcontrol': return 'Right Ctrl';
-      case 'leftctrl': case 'leftcontrol': return 'Left Ctrl';
-      case 'rightshift': return 'Right Shift';
-      case 'leftshift': return 'Left Shift';
-      case 'rightwin': case 'rightsuper': return 'Right Win';
-      case 'leftwin': case 'leftsuper': return 'Left Win';
-      case 'capslock': return 'Caps Lock';
-      case 'fn': case 'function': return 'Fn';
-      case 'escape': case 'esc': return 'Escape';
-      case 'space': return 'Space';
-      case 'tab': return 'Tab';
-      case 'return': case 'enter': return 'Return';
-      case 'backspace': return 'Backspace';
-      case 'delete': return 'Delete';
-      case 'left': case 'arrowleft': return '←';
-      case 'right': case 'arrowright': return '→';
-      case 'up': case 'arrowup': return '↑';
-      case 'down': case 'arrowdown': return '↓';
-      default:
-        if (k.match(/^f\d+$/)) return k.toUpperCase();
-        return k.toUpperCase();
-    }
-  };
-
-  // Get simple hotkey display for keyboard shortcut badge
-  const getHotkeyShortDisplay = (keyName: string): string => {
-    const k = keyName.toLowerCase();
-    switch (k) {
-      case 'rightoption': case 'leftoption': case 'rightalt': case 'leftalt': return '⌥';
-      case 'rightcommand': case 'leftcommand': case 'rightcmd': case 'leftcmd': return '⌘';
-      case 'rightctrl': case 'leftctrl': case 'rightcontrol': case 'leftcontrol': return '⌃';
-      case 'rightshift': case 'leftshift': return '⇧';
-      case 'rightwin': case 'leftwin': case 'rightsuper': case 'leftsuper': return '⊞';
-      case 'capslock': return '⇪';
-      case 'fn': case 'function': return 'Fn';
-      case 'escape': case 'esc': return 'Esc';
-      case 'space': return '␣';
-      case 'tab': return '⇥';
-      case 'return': case 'enter': return '↵';
-      case 'backspace': return '⌫';
-      case 'delete': return '⌦';
-      case 'left': case 'arrowleft': return '←';
-      case 'right': case 'arrowright': return '→';
-      case 'up': case 'arrowup': return '↑';
-      case 'down': case 'arrowdown': return '↓';
-      default: return k.toUpperCase();
-    }
-  };
+  const formatKeyDisplay = (keyName: string): string => formatHotkeyLabel(keyName, platform);
+  const getHotkeyShortDisplay = (keyName: string): string => formatHotkeyShortLabel(keyName, platform);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -1363,6 +1310,8 @@ function App() {
       isRecording={appState.state === 'recording'}
       onStop={handleToggleRecording}
       onCancel={handleCancelRecording}
+      stopKeyLabel={getHotkeyShortDisplay(currentHotkey)}
+      cancelKeyLabel={getHotkeyShortDisplay(cancelHotkey)}
     />
     </>
   );

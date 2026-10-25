@@ -53,6 +53,9 @@ type Overlay struct {
 	done               chan struct{}
 	history            [waveformBars]float32
 	frameErr           error
+	stopKey, cancelKey string
+	// Button rectangles from the last drawn frame, used for hit testing.
+	stopRect, cancelRect image.Rectangle
 }
 
 func New() *Overlay {
@@ -76,6 +79,13 @@ func (o *Overlay) SetStatus(s string)          { o.mu.Lock(); o.status = s; o.mu
 func (o *Overlay) SetAudioLevel(v float32)     { o.mu.Lock(); o.level = v; o.mu.Unlock() }
 func (o *Overlay) SetStopCallback(cb func())   { o.mu.Lock(); o.stop = cb; o.mu.Unlock() }
 func (o *Overlay) SetCancelCallback(cb func()) { o.mu.Lock(); o.cancel = cb; o.mu.Unlock() }
+
+// SetHotkeyLabels sets the key labels shown on the Stop and Cancel buttons.
+func (o *Overlay) SetHotkeyLabels(stop, cancel string) {
+	o.mu.Lock()
+	o.stopKey, o.cancelKey = stop, cancel
+	o.mu.Unlock()
+}
 func (o *Overlay) Destroy() {
 	o.mu.Lock()
 	o.destroyed = true
@@ -115,10 +125,10 @@ func (o *Overlay) run(ready chan struct{}) {
 			o.mu.Lock()
 			var cb func()
 			if o.status == "Recording..." {
-				if p.In(stopBounds) {
+				if p.In(o.stopRect) {
 					cb = o.stop
 				}
-				if p.In(cancelBounds) {
+				if p.In(o.cancelRect) {
 					cb = o.cancel
 				}
 			}
@@ -229,20 +239,23 @@ func (o *Overlay) drawFrame(hwnd uintptr, renderer *overlayRenderer, surface *la
 		o.history[waveformBars-1] = o.level
 	}
 	status, history := o.status, o.history
+	stopText, cancelText := buttonText("Stop", o.stopKey), buttonText("Cancel", o.cancelKey)
 	o.mu.Unlock()
+	stopRect, cancelRect := renderer.buttons(stopText, cancelText)
 	var cursor point
 	call("GetCursorPos", uintptr(unsafe.Pointer(&cursor)))
 	call("ScreenToClient", hwnd, uintptr(unsafe.Pointer(&cursor)))
 	p := image.Pt(int(float64(cursor.x)/renderer.scale), int(float64(cursor.y)/renderer.scale))
 	hover := 0
-	if p.In(stopBounds) {
+	if p.In(stopRect) {
 		hover = 1
 	}
-	if p.In(cancelBounds) {
+	if p.In(cancelRect) {
 		hover = 2
 	}
-	err := surface.present(hwnd, renderer.render(status, history, hover))
+	err := surface.present(hwnd, renderer.render(status, stopText, cancelText, history, hover))
 	o.mu.Lock()
+	o.stopRect, o.cancelRect = stopRect, cancelRect
 	if err != nil && o.frameErr == nil {
 		logger.Error(err.Error())
 	}

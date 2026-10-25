@@ -100,6 +100,8 @@ type App struct {
 	statsManager  *models.StatsManager
 	hotkeyManager *hotkey.Manager
 	overlay       *overlay.Overlay
+	// Serializes native overlay label refreshes.
+	overlayLabelsMu sync.Mutex
 
 	mu              sync.Mutex
 	state           RecordingState
@@ -226,6 +228,7 @@ func (a *App) startup(ctx context.Context) {
 		cancelKey = "escape"
 	}
 	a.hotkeyManager.SetCancelKey(cancelKey)
+	a.refreshOverlayHotkeyLabels()
 
 	// Register global hotkey
 	if err := a.hotkeyManager.Register(func() {
@@ -1034,7 +1037,9 @@ func (a *App) SetRecordingHotkey(keyName string) error {
 	}
 
 	// Save to config
-	return a.configManager.SetRecordingHotkey(keyName)
+	err := a.configManager.SetRecordingHotkey(keyName)
+	a.refreshOverlayHotkeyLabels()
+	return err
 }
 
 // GetRecordingHotkey returns the current recording hotkey string
@@ -1063,7 +1068,22 @@ func (a *App) SetCancelHotkey(keyName string) error {
 	}
 
 	// Save to config
-	return a.configManager.SetCancelHotkey(keyName)
+	err := a.configManager.SetCancelHotkey(keyName)
+	a.refreshOverlayHotkeyLabels()
+	return err
+}
+
+// refreshOverlayHotkeyLabels shows the configured keys on the native
+// overlay's Stop and Cancel buttons. The config keeps a change in memory even
+// if saving fails, so it matches the hotkey manager. Reading and pushing under
+// one lock means concurrent hotkey changes cannot leave a stale label behind.
+func (a *App) refreshOverlayHotkeyLabels() {
+	if a.overlay == nil {
+		return
+	}
+	a.overlayLabelsMu.Lock()
+	defer a.overlayLabelsMu.Unlock()
+	a.overlay.SetHotkeyLabels(hotkey.ShortLabel(a.GetRecordingHotkey()), hotkey.ShortLabel(a.GetCancelHotkey()))
 }
 
 // GetCancelHotkey returns the current cancel hotkey string
@@ -1137,6 +1157,7 @@ func (a *App) ReregisterHotkey() error {
 		cancelKey = "escape"
 	}
 	a.hotkeyManager.SetCancelKey(cancelKey)
+	a.refreshOverlayHotkeyLabels()
 
 	// Register the hotkey
 	if err := a.hotkeyManager.Register(func() {

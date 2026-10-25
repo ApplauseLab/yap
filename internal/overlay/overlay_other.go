@@ -28,5 +28,8 @@ func (o *Overlay) SetStopCallback(cb func()) {}
 // SetCancelCallback sets the callback for when cancel is clicked (no-op on non-macOS)
 func (o *Overlay) SetCancelCallback(cb func()) {}
 
+// SetHotkeyLabels sets the Stop and Cancel key labels (no-op on non-macOS)
+func (o *Overlay) SetHotkeyLabels(stop, cancel string) {}
+
 // Destroy cleans up the overlay (no-op on non-macOS)
 func (o *Overlay) Destroy() {}
