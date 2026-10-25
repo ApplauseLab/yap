@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
@@ -444,27 +443,27 @@ func (a *App) DeleteHistoryItem(id string) error {
 // ShowInFolder opens the system file manager with the audio file selected
 func (a *App) ShowInFolder(id string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	var selected *HistoryItem
 
 	for _, item := range a.history {
 		if item.ID == id {
-			if !item.HasAudio || item.AudioPath == "" {
-				return fmt.Errorf("no audio available for this item")
-			}
-
-			// Check if file exists
-			if _, err := os.Stat(item.AudioPath); os.IsNotExist(err) {
-				return fmt.Errorf("audio file not found")
-			}
-
-			// macOS: use open -R to reveal in Finder
-			// Windows: use explorer /select,
-			// Linux: use xdg-open on the parent folder
-			cmd := exec.Command("open", "-R", item.AudioPath)
-			return cmd.Run()
+			copy := item
+			selected = &copy
+			break
 		}
 	}
-	return fmt.Errorf("history item not found")
+	a.mu.Unlock()
+	if selected == nil {
+		return fmt.Errorf("history item not found")
+	}
+	if !selected.HasAudio || selected.AudioPath == "" {
+		return fmt.Errorf("no audio available for this item")
+	}
+	if err := system.RevealFile(selected.AudioPath); err != nil {
+		logger.Error(fmt.Sprintf("ShowInFolder failed: %v", err))
+		return err
+	}
+	return nil
 }
 
 // GetAudioData returns the audio data for a history item as base64
