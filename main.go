@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 
+	"yap/internal/crashlog"
 	filelogger "yap/internal/logger"
 	"yap/internal/transcribe"
 	"yap/internal/tray"
@@ -38,6 +39,8 @@ func main() {
 		}
 	}()
 	filelogger.Info("Yap app version: " + appVersion)
+	session := startCrashDiagnostics()
+	defer crashlog.LogPanic("main")
 
 	app := NewApp()
 	filelogger.Info("App instance created")
@@ -95,6 +98,7 @@ func main() {
 		BackgroundColour:   &options.RGBA{R: 22, G: 19, B: 31, A: 255},
 		OnStartup:          app.startup,
 		OnDomReady:         app.domReady,
+		OnBeforeClose:      app.beforeClose,
 		OnShutdown:         app.shutdown,
 		Logger:             wailsLogger,
 		LogLevel:           wailslogger.DEBUG,
@@ -122,10 +126,36 @@ func main() {
 		},
 	})
 
+	filelogger.Info("Wails runtime exited")
+
 	// Cleanup systray when Wails exits
 	tray.Quit()
 
 	if err != nil {
+		filelogger.Error("Wails runtime error: " + err.Error())
 		println("Error:", err.Error())
 	}
+	session.End()
+}
+
+// startCrashDiagnostics keeps crash output and reports earlier sessions that
+// ended without a clean shutdown (crash, force quit or power loss).
+func startCrashDiagnostics() *crashlog.Session {
+	logsDir := filelogger.GetLogsDir()
+	if path, err := crashlog.RedirectStderr(logsDir, appVersion); err != nil {
+		filelogger.Warning("Failed to redirect stderr to the logs directory: " + err.Error())
+	} else if path != "" {
+		filelogger.Info("Crash output is written to " + path)
+	}
+
+	session, unclean, err := crashlog.StartSession(logsDir, appVersion)
+	if err != nil {
+		filelogger.Warning("Failed to record session start: " + err.Error())
+	}
+	for _, previous := range unclean {
+		filelogger.Warning(fmt.Sprintf("Previous Yap session pid=%d (%s) exited without a clean shutdown; crash output, if any, is in %s<date>.log", previous.PID, previous.Details, crashlog.StderrLogPrefix))
+	}
+
+	crashlog.LogAppLifecycle()
+	return session
 }

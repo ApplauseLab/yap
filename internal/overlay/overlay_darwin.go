@@ -320,6 +320,8 @@ import "C"
 import (
 	"sync"
 	"unsafe"
+
+	"yap/internal/crashlog"
 )
 
 var (
@@ -336,7 +338,7 @@ func goOverlayStopClicked() {
 	stopCallbackMu.Unlock()
 	
 	if cb != nil {
-		go cb() // Run in goroutine to avoid blocking
+		crashlog.Go("overlay stop", cb) // Run in goroutine to avoid blocking
 	}
 }
 
@@ -347,7 +349,7 @@ func goOverlayCancelClicked() {
 	cancelCallbackMu.Unlock()
 	
 	if cb != nil {
-		go cb() // Run in goroutine to avoid blocking
+		crashlog.Go("overlay cancel", cb) // Run in goroutine to avoid blocking
 	}
 }
 

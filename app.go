@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"yap/internal/audio"
+	"yap/internal/crashlog"
 	"yap/internal/hotkey"
 	"yap/internal/logger"
 	"yap/internal/models"
@@ -553,7 +554,8 @@ func (a *App) StartRecording() error {
 
 	a.emitState()
 
-	// Create fresh recorder for each recording session
+	// Create fresh recorder for each recording session. GetState reads it
+	// under a.mu while the frontend polls during recording.
 	a.mu.Lock()
 	a.recorder = audio.NewRecorder()
 	a.mu.Unlock()
@@ -676,6 +678,7 @@ func (a *App) getAudioDir() string {
 
 // transcribe processes the audio samples
 func (a *App) transcribe(samples []float32, duration float64) {
+	defer crashlog.LogPanic("transcribe")
 	config := a.configManager.Get()
 
 	var text string
@@ -750,7 +753,7 @@ func (a *App) transcribe(samples []float32, duration float64) {
 		}
 
 		// Save history to disk
-		go a.saveHistory()
+		crashlog.Go("save history", a.saveHistory)
 
 		// Record stats
 		if a.statsManager != nil {
@@ -761,6 +764,7 @@ func (a *App) transcribe(samples []float32, duration float64) {
 		runtime.LogDebug(a.ctx, fmt.Sprintf("AutoPaste=%v, text length=%d", config.AutoPaste, len(text)))
 		if config.AutoPaste {
 			go func(textToPaste string) {
+				defer crashlog.Recover("auto-paste")
 				// Wait for the overlay to hide and the previous app to regain focus
 				runtime.LogDebug(a.ctx, "Waiting 500ms before paste")
 				time.Sleep(500 * time.Millisecond)
@@ -774,6 +778,7 @@ func (a *App) transcribe(samples []float32, duration float64) {
 		} else {
 			runtime.LogDebug(a.ctx, "AutoPaste disabled, only copying to clipboard")
 			go func(textToCopy string) {
+				defer crashlog.Recover("copy to clipboard")
 				if err := system.CopyToClipboard(textToCopy); err != nil {
 					runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to copy to clipboard: %v", err))
 				}
@@ -896,6 +901,7 @@ func (a *App) prewarmLocalEngine() {
 		return
 	}
 	go func() {
+		defer crashlog.LogPanic("whisper prewarm")
 		started := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
@@ -1124,6 +1130,7 @@ func (a *App) ReregisterHotkey() error {
 // DownloadModel downloads a model
 func (a *App) DownloadModel(model string) error {
 	go func() {
+		defer crashlog.LogPanic("model download")
 		err := a.modelManager.DownloadModel(model, func(downloaded, total int64) {
 			progress := float64(downloaded) / float64(total) * 100
 			runtime.EventsEmit(a.ctx, "downloadProgress", map[string]interface{}{

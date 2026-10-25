@@ -276,6 +276,7 @@ import (
 	"strings"
 	"sync"
 
+	"yap/internal/crashlog"
 	"yap/internal/logger"
 )
 
@@ -302,7 +303,7 @@ func goCancelPressed() {
 	cb := cancelCallback
 	cancelCallbackMu.Unlock()
 	if cb != nil {
-		go cb()
+		crashlog.Go("cancel hotkey", cb)
 	}
 }
 
@@ -358,6 +359,7 @@ func (m *Manager) Register(cb Callback) error {
 
 	// Start goroutine to handle hotkey events safely
 	go func() {
+		defer crashlog.LogPanic("recording hotkey")
 		for {
 			select {
 			case <-hotkeyC:
