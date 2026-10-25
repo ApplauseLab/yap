@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './RecordingOverlay.css';
-import YapIcon from './assets/yap-icon.svg';
+import YapIcon from './assets/appicon.png';
 
 interface RecordingOverlayProps {
   isRecording: boolean;

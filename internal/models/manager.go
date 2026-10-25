@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 const (
@@ -38,7 +39,8 @@ func AvailableModels() []ModelDownloadInfo {
 
 // Manager handles model downloads and management
 type Manager struct {
-	modelsDir string
+	modelsDir     string
+	downloadLocks sync.Map // Model name -> *sync.Mutex; different models download independently.
 }
 
 // NewManager creates a new model manager
@@ -86,6 +88,13 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 		return fmt.Errorf("unknown model: %s", modelName)
 	}
 
+	// Repeated UI requests must not write or publish the same model at once.
+	// Waiters recheck the final file after the active download completes.
+	lock, _ := m.downloadLocks.LoadOrStore(modelName, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
 	// Create target path
 	targetPath := filepath.Join(m.modelsDir, modelInfo.Filename)
 
@@ -95,23 +104,26 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 	}
 
 	// Create temp file
-	tmpPath := targetPath + ".tmp"
-	out, err := os.Create(tmpPath)
+	out, err := os.CreateTemp(m.modelsDir, modelInfo.Filename+"-*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer out.Close()
+	tmpPath := out.Name()
+	defer func() {
+		// Windows will not rename or remove a file while our write handle is
+		// open. Close before cleanup on every failure path as well.
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+	}()
 
 	// Download
 	resp, err := http.Get(modelInfo.URL)
 	if err != nil {
-		os.Remove(tmpPath)
 		return fmt.Errorf("failed to download: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		os.Remove(tmpPath)
 		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
 	}
 
@@ -128,7 +140,6 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
-				os.Remove(tmpPath)
 				return fmt.Errorf("failed to write: %w", writeErr)
 			}
 			downloaded += int64(n)
@@ -140,14 +151,16 @@ func (m *Manager) DownloadModel(modelName string, progress DownloadProgress) err
 			break
 		}
 		if err != nil {
-			os.Remove(tmpPath)
 			return fmt.Errorf("download error: %w", err)
 		}
 	}
 
-	// Rename to final path
+	// Finish writing before publishing the model. A deferred Close alone
+	// runs too late: os.Rename fails with a sharing violation on Windows.
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("failed to close downloaded model: %w", err)
+	}
 	if err := os.Rename(tmpPath, targetPath); err != nil {
-		os.Remove(tmpPath)
 		return fmt.Errorf("failed to finalize download: %w", err)
 	}
 

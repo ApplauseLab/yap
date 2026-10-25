@@ -142,6 +142,7 @@ func (e *LocalEngine) TranscribeWAV(ctx context.Context, wavData []byte) (string
 		var stderr bytes.Buffer
 		cmd.Stdout = io.Discard
 		cmd.Stderr = &stderr
+		hideChildConsole(cmd)
 
 		err := cmd.Run()
 		output := stderr.Bytes()
@@ -310,6 +311,7 @@ func (e *LocalEngine) ValidateRuntime(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, whisperBin, "--help")
 	cmd.Env = e.whisperEnv(os.Environ(), whisperBin)
+	hideChildConsole(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return e.commandError("whisper runtime validation failed", err, output, whisperBin, e.getModelPath(), cmd.Env)
@@ -538,14 +540,24 @@ func (e *LocalEngine) commandError(prefix string, err error, output []byte, whis
 	}
 
 	return fmt.Errorf(
-		"%s: %w; whisperBin=%q modelPath=%q GGML_BACKEND_PATH=%q output=%q",
+		"%s: %w%s; whisperBin=%q modelPath=%q GGML_BACKEND_PATH=%q output=%q",
 		prefix,
 		err,
+		illegalInstructionHint(err),
 		whisperBin,
 		modelPath,
 		backendPath,
 		trimCommandOutput(string(output)),
 	)
+}
+
+// illegalInstructionHint explains crashes of the bundled x86-64 whisper.cpp
+// runtime, which is built for an AVX2 (x86-64-v3) baseline.
+func illegalInstructionHint(err error) string {
+	if runtime.GOARCH != "amd64" || !isIllegalInstructionExit(err) {
+		return ""
+	}
+	return " (illegal instruction: this CPU likely lacks AVX2, which the bundled whisper.cpp runtime requires)"
 }
 
 func envWithValue(env []string, key string, value string) []string {

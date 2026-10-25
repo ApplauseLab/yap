@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
@@ -80,6 +79,9 @@ type UsageStats struct {
 
 // App struct
 type App struct {
+	recordingMu   sync.Mutex // Serialize hotkey/UI start, stop and cancel transitions.
+	startupDone   chan struct{}
+	startupErr    error // Published by closing startupDone.
 	ctx           context.Context
 	recorder      *audio.Recorder
 	localEngine   *transcribe.LocalEngine
@@ -105,6 +107,7 @@ type App struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	app := &App{
+		startupDone:   make(chan struct{}),
 		recorder:      nil, // Created fresh for each recording
 		hotkeyManager: hotkey.NewManager(),
 		overlay:       overlay.New(),
@@ -127,6 +130,10 @@ func NewApp() *App {
 
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
+	// Wails can serve frontend binding calls before OnStartup returns.
+	// Publish all managers together; the UI waits before mounting App.
+	a.startupErr = fmt.Errorf("application startup did not complete")
+	defer close(a.startupDone)
 	a.ctx = ctx
 	runtime.LogInfo(a.ctx, "OnStartup: initializing")
 
@@ -145,6 +152,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize config manager
 	configManager, err := models.NewConfigManager()
 	if err != nil {
+		a.startupErr = fmt.Errorf("initialize configuration: %w", err)
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to initialize config: %v", err))
 		return
 	}
@@ -166,6 +174,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize model manager
 	modelManager, err := models.NewManager(configManager.GetModelsDir())
 	if err != nil {
+		a.startupErr = fmt.Errorf("initialize models: %w", err)
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to initialize model manager: %v", err))
 		return
 	}
@@ -219,6 +228,23 @@ func (a *App) startup(ctx context.Context) {
 	// Load history from disk
 	a.loadHistory()
 	runtime.LogInfo(a.ctx, "OnStartup: complete")
+	a.startupErr = nil
+}
+
+// WaitForStartup is a binding used before mounting the frontend. Closing the
+// channel publishes initialization writes to all waiting callers.
+func (a *App) WaitForStartup() error {
+	if a.startupDone == nil {
+		return fmt.Errorf("application startup has not been scheduled")
+	}
+	timer := time.NewTimer(60 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-a.startupDone:
+		return a.startupErr
+	case <-timer.C:
+		return fmt.Errorf("application startup timed out; check Yap logs")
+	}
 }
 
 // handleTerminationSignals stops the Whisper worker when Yap is terminated by
@@ -266,6 +292,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 // GetState returns the current app state
 func (a *App) GetState() AppState {
+	if err := a.WaitForStartup(); err != nil {
+		return AppState{Error: err.Error()}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -414,27 +443,27 @@ func (a *App) DeleteHistoryItem(id string) error {
 // ShowInFolder opens the system file manager with the audio file selected
 func (a *App) ShowInFolder(id string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	var selected *HistoryItem
 
 	for _, item := range a.history {
 		if item.ID == id {
-			if !item.HasAudio || item.AudioPath == "" {
-				return fmt.Errorf("no audio available for this item")
-			}
-
-			// Check if file exists
-			if _, err := os.Stat(item.AudioPath); os.IsNotExist(err) {
-				return fmt.Errorf("audio file not found")
-			}
-
-			// macOS: use open -R to reveal in Finder
-			// Windows: use explorer /select,
-			// Linux: use xdg-open on the parent folder
-			cmd := exec.Command("open", "-R", item.AudioPath)
-			return cmd.Run()
+			copy := item
+			selected = &copy
+			break
 		}
 	}
-	return fmt.Errorf("history item not found")
+	a.mu.Unlock()
+	if selected == nil {
+		return fmt.Errorf("history item not found")
+	}
+	if !selected.HasAudio || selected.AudioPath == "" {
+		return fmt.Errorf("no audio available for this item")
+	}
+	if err := system.RevealFile(selected.AudioPath); err != nil {
+		logger.Error(fmt.Sprintf("ShowInFolder failed: %v", err))
+		return err
+	}
+	return nil
 }
 
 // GetAudioData returns the audio data for a history item as base64
@@ -474,6 +503,8 @@ func (a *App) ToggleRecording() error {
 
 // StartRecording begins audio capture
 func (a *App) StartRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	runtime.LogInfo(a.ctx, "StartRecording called")
 	runtime.LogDebug(a.ctx, "StartRecording: entering function")
 	if err := a.validateReadyToRecord(); err != nil {
@@ -523,7 +554,9 @@ func (a *App) StartRecording() error {
 	a.emitState()
 
 	// Create fresh recorder for each recording session
+	a.mu.Lock()
 	a.recorder = audio.NewRecorder()
+	a.mu.Unlock()
 
 	// Set audio device from config if available
 	if a.configManager != nil {
@@ -533,6 +566,7 @@ func (a *App) StartRecording() error {
 		}
 	}
 
+	a.recorder.SetLevelCallback(a.overlay.SetAudioLevel)
 	if err := a.recorder.Start(); err != nil {
 		a.mu.Lock()
 		a.state = StateError
@@ -560,6 +594,8 @@ func (a *App) StartRecording() error {
 
 // StopRecording ends audio capture and starts transcription
 func (a *App) StopRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	a.mu.Lock()
 	if a.state != StateRecording {
 		a.mu.Unlock()
@@ -579,6 +615,7 @@ func (a *App) StopRecording() error {
 	a.emitState()
 
 	samples, err := a.recorder.Stop()
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Audio capture stopped: samples=%d error=%v", len(samples), err))
 	if err != nil {
 		a.mu.Lock()
 		a.state = StateError
@@ -596,6 +633,8 @@ func (a *App) StopRecording() error {
 
 // CancelRecording stops recording without transcribing
 func (a *App) CancelRecording() error {
+	a.recordingMu.Lock()
+	defer a.recordingMu.Unlock()
 	a.mu.Lock()
 	if a.state != StateRecording {
 		a.mu.Unlock()
@@ -798,6 +837,9 @@ func (a *App) emitState() {
 
 // GetModels returns available models with download status
 func (a *App) GetModels() []ModelInfo {
+	if a.WaitForStartup() != nil {
+		return nil
+	}
 	available := transcribe.AvailableModels()
 	result := make([]ModelInfo, len(available))
 
@@ -877,6 +919,9 @@ func (a *App) SetOpenAIKey(key string) error {
 
 // GetConfig returns the current configuration
 func (a *App) GetConfig() *models.Config {
+	if a.WaitForStartup() != nil {
+		return nil
+	}
 	return a.configManager.Get()
 }
 
@@ -1148,6 +1193,9 @@ func (a *App) SetTray(onUpdate func(recording bool)) {
 
 // IsOnboardingCompleted checks if the user has completed onboarding
 func (a *App) IsOnboardingCompleted() bool {
+	if a.WaitForStartup() != nil {
+		return false
+	}
 	return a.configManager.IsOnboardingCompleted()
 }
 

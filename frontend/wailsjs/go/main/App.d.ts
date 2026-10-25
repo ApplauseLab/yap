@@ -92,3 +92,4 @@ export function StartRecording():Promise<void>;
 export function StopRecording():Promise<void>;
 
 export function ToggleRecording():Promise<void>;
+export function WaitForStartup(): Promise<void>;

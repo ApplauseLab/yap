@@ -1190,7 +1190,10 @@ function App() {
                         </svg>
                       </button>
                       {selectedHistory.hasAudio && (
-                        <button onClick={() => ShowInFolder(selectedHistory.id)} title="Show in Folder">
+                        <button onClick={() => ShowInFolder(selectedHistory.id).catch((error) => {
+                          LogError(`[frontend] ShowInFolder failed: ${error}`);
+                          alert(`Could not show recording in folder: ${error}`);
+                        })} title="Show in Folder">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                           </svg>

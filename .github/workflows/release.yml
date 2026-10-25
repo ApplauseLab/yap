@@ -221,6 +221,9 @@ jobs:
 
       # The vcpkg whisper-cpp port does not build whisper-cli or whisper-server,
       # so build them from source as self-contained executables.
+      # GGML_NATIVE=OFF enables the x86-64-v3 set (AVX2/FMA/F16C/BMI2) in a
+      # single static binary. Per-CPU variants (GGML_CPU_ALL_VARIANTS) need
+      # GGML_BACKEND_DL and shared libraries, so AVX2 is the documented minimum.
       - name: Build whisper.cpp CLI and server
         run: |
           git clone --depth 1 --branch $env:WHISPER_CPP_VERSION https://github.com/ggml-org/whisper.cpp.git C:\whisper.cpp
@@ -257,6 +260,75 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$exe failed to start (exit $LASTEXITCODE)" }
           }
 
+      - name: Cache Whisper smoke-test model
+        uses: actions/cache@v4
+        with:
+          path: C:\yap-models\ggml-tiny.en.bin
+          key: whisper-model-ggml-tiny.en-c78c86eb
+
+      - name: Download Whisper smoke-test model
+        run: |
+          $model = "C:\yap-models\ggml-tiny.en.bin"
+          if (-not (Test-Path $model)) {
+            New-Item -ItemType Directory -Force -Path "C:\yap-models" | Out-Null
+            Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin" -OutFile $model
+          }
+          $sha1 = (Get-FileHash -Algorithm SHA1 $model).Hash.ToLower()
+          if ($sha1 -ne "c78c86eb1a8faa21b369bcd33207cc90d64ae9df") {
+            Remove-Item $model
+            throw "ggml-tiny.en.bin checksum mismatch: $sha1"
+          }
+
+      # Mirrors the requests Yap makes: whisper-cli fallback and the loopback
+      # whisper-server worker (see internal/transcribe/whisper_worker.go).
+      - name: Smoke test whisper.cpp transcription
+        run: |
+          $bin = (Resolve-Path "build\bin\bin").Path
+          $model = "C:\yap-models\ggml-tiny.en.bin"
+          $wav = "C:\whisper.cpp\samples\jfk.wav"
+
+          $cliText = (& "$bin\whisper-cli.exe" -m $model -f $wav --no-timestamps 2>$null) -join " "
+          if ($LASTEXITCODE -ne 0) { throw "whisper-cli failed (exit $LASTEXITCODE)" }
+          Write-Host "whisper-cli transcript: $cliText"
+          if ($cliText -notmatch "country") { throw "unexpected whisper-cli transcript" }
+
+          $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $probe.Start(); $port = $probe.LocalEndpoint.Port; $probe.Stop()
+          $base = "http://127.0.0.1:$port/yap-$([guid]::NewGuid().ToString('N'))"
+          $serverLog = Join-Path $env:RUNNER_TEMP "whisper-server.log"
+          $server = Start-Process -FilePath "$bin\whisper-server.exe" -PassThru -NoNewWindow `
+            -ArgumentList @("-m", $model, "--host", "127.0.0.1", "--port", "$port", "--request-path", ([uri]$base).AbsolutePath, "--inference-path", "/inference", "--no-timestamps") `
+            -RedirectStandardError $serverLog -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP "whisper-server.out")
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 240 -and -not $ready; $i++) {
+              if ($server.HasExited) { throw "whisper-server exited (code $($server.ExitCode))" }
+              try {
+                $response = Invoke-WebRequest -Uri "$base/" -UseBasicParsing -TimeoutSec 2
+                $ready = [bool]($response.Headers["Server"] -eq "whisper.cpp")
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $ready) { throw "whisper-server did not become ready" }
+
+            $listeners = @(Get-NetTCPConnection -State Listen -OwningProcess $server.Id)
+            $listeners | Format-Table LocalAddress, LocalPort | Out-String | Write-Host
+            if ($listeners.Count -eq 0 -or ($listeners | Where-Object { $_.LocalAddress -ne "127.0.0.1" })) {
+              throw "whisper-server must listen on 127.0.0.1 only"
+            }
+
+            $serverText = (& curl.exe -sS --fail -F "file=@$wav" -F "response_format=text" -F "no_timestamps=true" "$base/inference") -join " "
+            if ($LASTEXITCODE -ne 0) { throw "whisper-server inference failed (exit $LASTEXITCODE)" }
+            Write-Host "whisper-server transcript: $serverText"
+            if ($serverText -notmatch "country") { throw "unexpected whisper-server transcript" }
+          } catch {
+            Get-Content $serverLog -Tail 40 -ErrorAction SilentlyContinue
+            throw
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Build Windows App
         run: |
           wails build -platform windows/amd64 -nsis -o "Yap.exe" -ldflags "-X main.appVersion=${{ needs.prepare.outputs.version }}"
@@ -286,6 +358,82 @@ jobs:
               Move-Item -Path $_.FullName -Destination "Yap-${{ needs.prepare.outputs.version }}-Windows-Setup.exe"
             }
           }
+
+      # Runs Yap's own transcription code (internal/transcribe) from the
+      # installed and portable layouts, so runtime discovery via <exeDir>\bin,
+      # the loopback worker, the whisper-cli fallback, and cleanup are checked
+      # against the real packaged binaries.
+      - name: Verify packaged transcription runtime
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          $version = "${{ needs.prepare.outputs.version }}"
+          $harnessExe = Join-Path $env:RUNNER_TEMP "transcribe.test.exe"
+          go test -c -o $harnessExe ./internal/transcribe
+          if ($LASTEXITCODE -ne 0) { throw "failed to build transcription harness" }
+
+          $portableDir = "C:\yap-portable"
+          Expand-Archive -Path "Yap-$version-Windows-Portable.zip" -DestinationPath $portableDir -Force
+
+          $installer = Start-Process -FilePath (Resolve-Path "Yap-$version-Windows-Setup.exe").Path -ArgumentList "/S" -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "installer failed (exit $($installer.ExitCode))" }
+          $installDir = "C:\Program Files\Applause Lab\Yap"
+
+          $env:YAP_TEST_WHISPER_WAV = "C:\whisper.cpp\samples\jfk.wav"
+          $env:YAP_TEST_WHISPER_MODEL = "tiny.en"
+          $env:YAP_TEST_EXPECT_TEXT = "country"
+          foreach ($layout in @(@{ Name = "portable"; Dir = $portableDir }, @{ Name = "installed"; Dir = $installDir })) {
+            foreach ($file in "Yap.exe", "portaudio.dll", "bin\whisper-cli.exe", "bin\whisper-server.exe") {
+              if (-not (Test-Path (Join-Path $layout.Dir $file))) { throw "$($layout.Name) layout is missing $file" }
+            }
+            $models = Join-Path $env:RUNNER_TEMP "yap-models-$($layout.Name)"
+            New-Item -ItemType Directory -Force -Path $models | Out-Null
+            Copy-Item "C:\yap-models\ggml-tiny.en.bin" $models
+            $env:YAP_TEST_WHISPER_MODELS_DIR = $models
+            $harness = Join-Path $layout.Dir "transcribe.test.exe"
+            Copy-Item $harnessExe $harness
+            try {
+              foreach ($mode in @(@{ Server = $null; Backend = "cpu-worker" }, @{ Server = "disabled"; Backend = "whisper-cli" })) {
+                Write-Host "== $($layout.Name) layout, expected backend $($mode.Backend)"
+                if ($mode.Server) { $env:YAP_TEST_WHISPER_SERVER = $mode.Server } else { Remove-Item Env:YAP_TEST_WHISPER_SERVER -ErrorAction SilentlyContinue }
+                $env:YAP_TEST_EXPECT_BACKEND = $mode.Backend
+                & $harness "-test.run=^TestLocalEngine(TranscribeWAVReturnsTranscriptOnly|LeavesNoWorkerOrTempFiles)$" "-test.v" "-test.count=1"
+                if ($LASTEXITCODE -ne 0) { throw "transcription harness failed: $($layout.Name) $($mode.Backend)" }
+              }
+            } finally {
+              Remove-Item $harness -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          $leftover = @(Get-Process -Name whisper-server, whisper-cli -ErrorAction SilentlyContinue)
+          if ($leftover.Count -gt 0) {
+            $leftover | Format-Table Id, Path | Out-String | Write-Host
+            throw "whisper processes left running after the harness"
+          }
+
+      - name: Test Windows audio and overlay lifecycle
+        env:
+          CGO_ENABLED: '1'
+          YAP_TEST_OVERLAY_ARTIFACTS: ${{ runner.temp }}/yap-overlay-preview
+        run: go test -race -count=1 ./internal/audio/... ./internal/overlay/...
+
+      - name: Upload Windows overlay previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-overlay-preview
+          path: ${{ runner.temp }}/yap-overlay-preview
+          retention-days: 5
+
+      - name: Smoke test installed Windows app startup
+        run: ./scripts/windows-startup-smoke.ps1 -AppPath "C:\Program Files\Applause Lab\Yap\Yap.exe"
+
+      - name: Upload Windows startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-startup-diagnostics
+          path: ${{ runner.temp }}/yap-startup-smoke
+          retention-days: 5
 
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4

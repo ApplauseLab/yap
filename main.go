@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"embed"
+	"fmt"
+	"os"
+	"runtime"
 
 	filelogger "yap/internal/logger"
 	"yap/internal/transcribe"
@@ -58,6 +62,19 @@ func main() {
 	// Set the tray reference in app
 	app.SetTray(tray.SetRecording)
 	filelogger.Info("Starting Wails runtime")
+	var instanceLock *options.SingleInstanceLock
+	if runtime.GOOS == "windows" {
+		configDir, _ := os.UserConfigDir()
+		instanceLock = &options.SingleInstanceLock{
+			UniqueId: fmt.Sprintf("yap-%x", sha256.Sum256([]byte(configDir))),
+			OnSecondInstanceLaunch: func(options.SecondInstanceData) {
+				filelogger.Info("Second launch received; showing existing Yap window")
+				if app.WaitForStartup() == nil {
+					app.ShowWindow()
+				}
+			},
+		}
+	}
 
 	// A nil *FileLogger stored in the interface would silently drop Wails logs.
 	var wailsLogger wailslogger.Logger
@@ -66,11 +83,12 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "Yap",
-		Width:     950,
-		Height:    620,
-		MinWidth:  850,
-		MinHeight: 550,
+		SingleInstanceLock: instanceLock,
+		Title:              "Yap",
+		Width:              950,
+		Height:             620,
+		MinWidth:           850,
+		MinHeight:          550,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

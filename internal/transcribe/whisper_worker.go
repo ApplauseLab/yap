@@ -186,6 +186,7 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 	cmd.Env = envWithValue(os.Environ(), "GGML_BACKEND_PATH", backend.path)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = diagnostics
+	hideChildConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -194,6 +195,9 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 	e.writeWorkerPID(cmd.Process.Pid)
 	if err := startWorkerWatchdog(cmd.Process.Pid); err != nil {
 		logger.Warning(fmt.Sprintf("Failed to start Whisper worker watchdog: %v", err))
+	}
+	if err := bindToProcessLifetime(cmd.Process); err != nil {
+		logger.Warning(fmt.Sprintf("Whisper worker pid=%d is not bound to Yap's lifetime: %v", cmd.Process.Pid, err))
 	}
 
 	worker := &whisperWorker{
@@ -216,7 +220,7 @@ func (e *LocalEngine) startWorkerLocked(ctx context.Context, serverBin string, m
 	if err := worker.waitReady(startupCtx); err != nil {
 		worker.stop()
 		e.removeWorkerPID()
-		return nil, fmt.Errorf("worker startup failed: %w; backend=%q output=%q", err, backend.path, diagnostics.String())
+		return nil, fmt.Errorf("worker startup failed: %w%s; backend=%q output=%q", err, illegalInstructionHint(err), backend.path, diagnostics.String())
 	}
 	e.worker = worker
 	e.lastBackend = workerBackendName(worker)
@@ -306,25 +310,6 @@ func reapWorkerRecord(path string) {
 		return
 	}
 	logger.Info(fmt.Sprintf("Stopped orphaned Whisper worker pid=%d", pid))
-}
-
-func processAlive(pid int) bool {
-	if runtime.GOOS == "windows" {
-		out, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
-		return err == nil && strings.Contains(string(out), fmt.Sprintf("\"%d\"", pid))
-	}
-	return exec.Command("ps", "-p", strconv.Itoa(pid)).Run() == nil
-}
-
-func isWhisperServerProcess(pid int) bool {
-	var out []byte
-	var err error
-	if runtime.GOOS == "windows" {
-		out, err = exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
-	} else {
-		out, err = exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=").Output()
-	}
-	return err == nil && strings.Contains(strings.ToLower(string(out)), "whisper-server")
 }
 
 func (w *whisperWorker) waitReady(ctx context.Context) error {
