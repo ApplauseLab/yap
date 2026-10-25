@@ -89,8 +89,27 @@ jobs:
         run: |
           wails build -platform darwin/arm64 -o "Yap" -ldflags "-X main.appVersion=${{ needs.prepare.outputs.version }}"
 
+      - name: Cache Whisper smoke-test model
+        uses: actions/cache@v4
+        with:
+          path: ~/yap-models/ggml-tiny.en.bin
+          key: whisper-model-ggml-tiny.en-c78c86eb
+
+      - name: Download Whisper smoke-test model
+        run: |
+          MODEL="$HOME/yap-models/ggml-tiny.en.bin"
+          if [ ! -f "$MODEL" ]; then
+            mkdir -p "$(dirname "$MODEL")"
+            curl -fsSL -o "$MODEL" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+          fi
+          if [ "$(shasum -a 1 "$MODEL" | awk '{print $1}')" != "c78c86eb1a8faa21b369bcd33207cc90d64ae9df" ]; then
+            rm -f "$MODEL"
+            echo "::error::ggml-tiny.en.bin checksum mismatch"
+            exit 1
+          fi
+
       - name: Bundle macOS runtime libraries
-        run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp"
+        run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp" "$HOME/yap-models/ggml-tiny.en.bin"
 
       - name: Create DMG
         run: |
@@ -111,6 +130,7 @@ jobs:
           trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
           test -d "$MOUNT_DIR/Yap.app"
           test -L "$MOUNT_DIR/Applications"
+          test -L "$MOUNT_DIR/Yap.app/Contents/Resources/bin/libggml-cpu-apple_m1.so"
           codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/Yap.app"
           hdiutil detach "$MOUNT_DIR"
           trap - EXIT
