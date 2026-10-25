@@ -27,6 +27,13 @@ func revealFile(path string) error {
 	if err != nil {
 		return err
 	}
+	// Go's temporary directory (and some user profiles) can use DOS 8.3
+	// aliases. Explorer's shell namespace uses the long path for selection.
+	buffer := make([]uint16, 32768)
+	if _, err := windows.GetLongPathName(name, &buffer[0], uint32(len(buffer))); err != nil {
+		return fmt.Errorf("resolve recording path: %w", err)
+	}
+	name = &buffer[0]
 	var pidl unsafe.Pointer
 	hr, _, _ := parseDisplayName.Call(uintptr(unsafe.Pointer(name)), 0, uintptr(unsafe.Pointer(&pidl)), 0, 0)
 	if int32(hr) < 0 {

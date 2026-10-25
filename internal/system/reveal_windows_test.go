@@ -25,6 +25,7 @@ func TestNativeRevealFile(t *testing.T) {
 	}
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `
 $shell = New-Object -ComObject Shell.Application
+$expected = Join-Path $shell.Namespace((Split-Path $env:YAP_REVEAL_TEST_PATH)).Self.Path (Split-Path $env:YAP_REVEAL_TEST_PATH -Leaf)
 $deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
   foreach ($window in $shell.Windows()) {
@@ -32,7 +33,7 @@ while ((Get-Date) -lt $deadline) {
       $items = $window.Document.SelectedItems()
       for ($i = 0; $i -lt $items.Count; $i++) {
         $item = $items.Item($i)
-        if ($item.Path -eq $env:YAP_REVEAL_TEST_PATH) {
+        if ($item.Path -eq $expected) {
           Write-Output "Explorer selected the requested recording"
           $window.Quit()
           exit 0
