@@ -16,8 +16,17 @@ import (
 const overlayWidth, overlayHeight = 400, 124
 const waveformBars = 56
 
-var stopBounds = image.Rect(220, 68, 290, 96)
-var cancelBounds = image.Rect(300, 68, 375, 96)
+// Buttons are right-aligned and never narrower than the original fixed layout.
+const buttonTop, buttonBottom, buttonRight = 68, 96, 375
+const stopMinWidth, cancelMinWidth, buttonGap, buttonPadding = 70, 75, 10, 10
+
+// buttonText returns a button caption such as "Stop ⌥" or "Cancel Esc".
+func buttonText(action, keyLabel string) string {
+	if keyLabel == "" {
+		return action
+	}
+	return action + " " + keyLabel
+}
 
 type overlayRenderer struct {
 	scale      float64
@@ -78,7 +87,20 @@ func (r *overlayRenderer) round(dst *image.RGBA, left, top, right, bottom, radiu
 	}
 }
 
-func (r *overlayRenderer) render(status string, history [waveformBars]float32, hover int) *image.RGBA {
+// buttons sizes the Stop and Cancel buttons to fit their captions, in
+// device-independent pixels.
+func (r *overlayRenderer) buttons(stopText, cancelText string) (stop, cancel image.Rectangle) {
+	width := func(text string, minWidth int) int {
+		w := int(math.Ceil(float64(font.MeasureString(r.face, text))/64/r.scale)) + 2*buttonPadding
+		return max(minWidth, w)
+	}
+	cancel = image.Rect(buttonRight-width(cancelText, cancelMinWidth), buttonTop, buttonRight, buttonBottom)
+	stopRight := cancel.Min.X - buttonGap
+	stop = image.Rect(stopRight-width(stopText, stopMinWidth), buttonTop, stopRight, buttonBottom)
+	return stop, cancel
+}
+
+func (r *overlayRenderer) render(status, stopText, cancelText string, history [waveformBars]float32, hover int) *image.RGBA {
 	dst := image.NewRGBA(r.background.Bounds())
 	copy(dst.Pix, r.background.Pix)
 	for i, level := range history {
@@ -98,6 +120,7 @@ func (r *overlayRenderer) render(status string, history [waveformBars]float32, h
 	}
 	r.text(dst, status, image.Rect(31, 68, 215, 96), color.NRGBA{180, 180, 180, 255}, false)
 	if status == "Recording…" {
+		stopBounds, cancelBounds := r.buttons(stopText, cancelText)
 		for i, b := range []image.Rectangle{stopBounds, cancelBounds} {
 			shade := uint8(40)
 			if i == 0 {
@@ -108,8 +131,8 @@ func (r *overlayRenderer) render(status string, history [waveformBars]float32, h
 			}
 			r.round(dst, float64(b.Min.X), float64(b.Min.Y), float64(b.Max.X), float64(b.Max.Y), 7, color.NRGBA{shade, shade, shade, 255})
 		}
-		r.text(dst, "Stop", stopBounds, color.NRGBA{245, 245, 245, 255}, true)
-		r.text(dst, "Cancel esc", cancelBounds, color.NRGBA{160, 160, 160, 255}, true)
+		r.text(dst, stopText, stopBounds, color.NRGBA{245, 245, 245, 255}, true)
+		r.text(dst, cancelText, cancelBounds, color.NRGBA{160, 160, 160, 255}, true)
 	}
 	return dst
 }

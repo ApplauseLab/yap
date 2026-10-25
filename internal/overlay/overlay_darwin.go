@@ -21,6 +21,8 @@ static float gCurrentAudioLevel = 0.0;
 static float gLevelHistory[50];
 static int gLevelHistoryIndex = 0;
 static id gButtonMonitor = nil;
+static NSString *gStopKeyLabel = nil;
+static NSString *gCancelKeyLabel = nil;
 
 // Callbacks
 extern void goOverlayStopClicked(void);
@@ -80,6 +82,63 @@ static void updateAudioLevel(float level) {
     gCurrentAudioLevel = level;
     gLevelHistory[gLevelHistoryIndex] = level;
     gLevelHistoryIndex = (gLevelHistoryIndex + 1) % 50;
+}
+
+static NSString* buttonTitle(NSString *action, NSString *keyLabel) {
+    if (keyLabel == nil || [keyLabel length] == 0) {
+        return action;
+    }
+    return [NSString stringWithFormat:@"%@ %@", action, keyLabel];
+}
+
+// Set button titles from the configured key labels and size the buttons to
+// fit, right-aligned. Must run on the main thread.
+static void applyButtonTitles(void) {
+    if (gStopButton == nil || gCancelButton == nil) {
+        return;
+    }
+    NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+    [style setAlignment:NSTextAlignmentCenter];
+    NSFont *font = [NSFont systemFontOfSize:12 weight:NSFontWeightMedium];
+
+    NSDictionary *stopAttrs = @{
+        NSForegroundColorAttributeName: [NSColor whiteColor],
+        NSFontAttributeName: font,
+        NSParagraphStyleAttributeName: style
+    };
+    NSAttributedString *stopTitle = [[[NSAttributedString alloc] initWithString:buttonTitle(@"Stop", gStopKeyLabel)
+                                                                      attributes:stopAttrs] autorelease];
+
+    NSDictionary *cancelAttrs = @{
+        NSForegroundColorAttributeName: [NSColor colorWithWhite:0.6 alpha:1.0],
+        NSFontAttributeName: font,
+        NSParagraphStyleAttributeName: style
+    };
+    NSAttributedString *cancelTitle = [[[NSAttributedString alloc] initWithString:buttonTitle(@"Cancel", gCancelKeyLabel)
+                                                                        attributes:cancelAttrs] autorelease];
+
+    [gStopButton setAttributedTitle:stopTitle];
+    [gCancelButton setAttributedTitle:cancelTitle];
+
+    CGFloat panelWidth = [[gCancelButton superview] frame].size.width;
+    CGFloat cancelWidth = MAX(75, ceil([cancelTitle size].width) + 20);
+    CGFloat stopWidth = MAX(70, ceil([stopTitle size].width) + 20);
+    CGFloat cancelX = panelWidth - 15 - cancelWidth;
+    [gCancelButton setFrame:NSMakeRect(cancelX, 12, cancelWidth, 28)];
+    [gStopButton setFrame:NSMakeRect(cancelX - 10 - stopWidth, 12, stopWidth, 28)];
+}
+
+// Update the key labels shown on the Stop and Cancel buttons
+static void setOverlayHotkeyLabels(const char *stop, const char *cancel) {
+    NSString *stopLabel = [[NSString alloc] initWithUTF8String:stop];
+    NSString *cancelLabel = [[NSString alloc] initWithUTF8String:cancel];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [gStopKeyLabel release];
+        gStopKeyLabel = stopLabel;
+        [gCancelKeyLabel release];
+        gCancelKeyLabel = cancelLabel;
+        applyButtonTitles();
+    });
 }
 
 // Create the overlay panel
@@ -148,10 +207,6 @@ static void createOverlayPanel(void) {
     [gStatusLabel setStringValue:@"Recording..."];
     [contentView addSubview:gStatusLabel];
     
-    // Button styling
-    NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
-    [style setAlignment:NSTextAlignmentCenter];
-    
     // Stop button
     gStopButton = [[NSButton alloc] initWithFrame:NSMakeRect(panelWidth - 170, 12, 70, 28)];
     [gStopButton setButtonType:NSButtonTypeMomentaryPushIn];
@@ -159,14 +214,6 @@ static void createOverlayPanel(void) {
     gStopButton.wantsLayer = YES;
     gStopButton.layer.backgroundColor = [[NSColor colorWithRed:0.2 green:0.2 blue:0.2 alpha:1.0] CGColor];
     gStopButton.layer.cornerRadius = 6;
-    
-    NSDictionary *stopAttrs = @{
-        NSForegroundColorAttributeName: [NSColor whiteColor],
-        NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightMedium],
-        NSParagraphStyleAttributeName: style
-    };
-    NSAttributedString *stopTitle = [[NSAttributedString alloc] initWithString:@"Stop ⌥" attributes:stopAttrs];
-    [gStopButton setAttributedTitle:stopTitle];
     [contentView addSubview:gStopButton];
     
     // Cancel button
@@ -176,15 +223,8 @@ static void createOverlayPanel(void) {
     gCancelButton.wantsLayer = YES;
     gCancelButton.layer.backgroundColor = [[NSColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:1.0] CGColor];
     gCancelButton.layer.cornerRadius = 6;
-    
-    NSDictionary *cancelAttrs = @{
-        NSForegroundColorAttributeName: [NSColor colorWithWhite:0.6 alpha:1.0],
-        NSFontAttributeName: [NSFont systemFontOfSize:12 weight:NSFontWeightMedium],
-        NSParagraphStyleAttributeName: style
-    };
-    NSAttributedString *cancelTitle = [[NSAttributedString alloc] initWithString:@"Cancel esc" attributes:cancelAttrs];
-    [gCancelButton setAttributedTitle:cancelTitle];
     [contentView addSubview:gCancelButton];
+    applyButtonTitles();
 }
 
 // Animation tick
@@ -401,6 +441,15 @@ func (o *Overlay) SetCancelCallback(cb func()) {
 	cancelCallbackMu.Lock()
 	cancelCallback = cb
 	cancelCallbackMu.Unlock()
+}
+
+// SetHotkeyLabels sets the key labels shown on the Stop and Cancel buttons
+func (o *Overlay) SetHotkeyLabels(stop, cancel string) {
+	cStop := C.CString(stop)
+	defer C.free(unsafe.Pointer(cStop))
+	cCancel := C.CString(cancel)
+	defer C.free(unsafe.Pointer(cCancel))
+	C.setOverlayHotkeyLabels(cStop, cCancel)
 }
 
 // Destroy cleans up the overlay

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
+import { formatHotkeyLabel, formatHotkeyShortLabel } from './hotkeyLabels';
 import { Onboarding } from './Onboarding';
 import { ModelsLibrary } from './ModelsLibrary';
 import { useModelDownload } from './useModelDownload';
@@ -132,6 +133,7 @@ function App() {
   const [cancelHotkey, setCancelHotkey] = useState<string>('escape');
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [platform, setPlatform] = useState<string>('darwin');
+  const [hotkeyLabelsReady, setHotkeyLabelsReady] = useState<boolean>(false);
   const [isCapturingHotkey, setIsCapturingHotkey] = useState<boolean>(false);
   const [isCapturingCancelKey, setIsCapturingCancelKey] = useState<boolean>(false);
   const [accessibilityRecovery, setAccessibilityRecovery] = useState<AccessibilityRecoveryState>('checking');
@@ -255,8 +257,13 @@ function App() {
     GetHistory().then((h: HistoryItem[]) => setHistory(h));
     GetAudioInputDevices().then((devices: AudioInputDevice[]) => setAudioDevices(devices));
     GetStats().then((s: UsageStats) => setStats(s));
-    GetRecordingHotkey().then((h: string) => setCurrentHotkey(h));
-    GetCancelHotkey().then((h: string) => setCancelHotkey(h));
+    // Hotkey badges stay hidden until the real keys and platform are known,
+    // so Windows never flashes the macOS defaults.
+    Promise.allSettled([
+      GetRecordingHotkey().then((h: string) => setCurrentHotkey(h)),
+      GetCancelHotkey().then((h: string) => setCancelHotkey(h)),
+      GetPlatform().then((p: string) => setPlatform(p)),
+    ]).then(() => setHotkeyLabelsReady(true));
     LogInfo('[frontend] App initial data load requested');
 
     LogInfo('[frontend] Setting up EventsOn for stateChanged');
@@ -603,62 +610,8 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isCapturingHotkey, isCapturingCancelKey]);
 
-  // Format key name for display
-  const formatKeyDisplay = (keyName: string): string => {
-    const k = keyName.toLowerCase();
-    switch (k) {
-      case 'rightoption': case 'rightalt': return platform === 'darwin' ? 'Right ⌥' : 'Right Alt';
-      case 'leftoption': case 'leftalt': return platform === 'darwin' ? 'Left ⌥' : 'Left Alt';
-      case 'rightcommand': case 'rightcmd': return platform === 'darwin' ? 'Right ⌘' : 'Right Win';
-      case 'leftcommand': case 'leftcmd': return platform === 'darwin' ? 'Left ⌘' : 'Left Win';
-      case 'rightctrl': case 'rightcontrol': return 'Right Ctrl';
-      case 'leftctrl': case 'leftcontrol': return 'Left Ctrl';
-      case 'rightshift': return 'Right Shift';
-      case 'leftshift': return 'Left Shift';
-      case 'rightwin': case 'rightsuper': return 'Right Win';
-      case 'leftwin': case 'leftsuper': return 'Left Win';
-      case 'capslock': return 'Caps Lock';
-      case 'fn': case 'function': return 'Fn';
-      case 'escape': case 'esc': return 'Escape';
-      case 'space': return 'Space';
-      case 'tab': return 'Tab';
-      case 'return': case 'enter': return 'Return';
-      case 'backspace': return 'Backspace';
-      case 'delete': return 'Delete';
-      case 'left': case 'arrowleft': return '←';
-      case 'right': case 'arrowright': return '→';
-      case 'up': case 'arrowup': return '↑';
-      case 'down': case 'arrowdown': return '↓';
-      default:
-        if (k.match(/^f\d+$/)) return k.toUpperCase();
-        return k.toUpperCase();
-    }
-  };
-
-  // Get simple hotkey display for keyboard shortcut badge
-  const getHotkeyShortDisplay = (keyName: string): string => {
-    const k = keyName.toLowerCase();
-    switch (k) {
-      case 'rightoption': case 'leftoption': case 'rightalt': case 'leftalt': return '⌥';
-      case 'rightcommand': case 'leftcommand': case 'rightcmd': case 'leftcmd': return '⌘';
-      case 'rightctrl': case 'leftctrl': case 'rightcontrol': case 'leftcontrol': return '⌃';
-      case 'rightshift': case 'leftshift': return '⇧';
-      case 'rightwin': case 'leftwin': case 'rightsuper': case 'leftsuper': return '⊞';
-      case 'capslock': return '⇪';
-      case 'fn': case 'function': return 'Fn';
-      case 'escape': case 'esc': return 'Esc';
-      case 'space': return '␣';
-      case 'tab': return '⇥';
-      case 'return': case 'enter': return '↵';
-      case 'backspace': return '⌫';
-      case 'delete': return '⌦';
-      case 'left': case 'arrowleft': return '←';
-      case 'right': case 'arrowright': return '→';
-      case 'up': case 'arrowup': return '↑';
-      case 'down': case 'arrowdown': return '↓';
-      default: return k.toUpperCase();
-    }
-  };
+  const formatKeyDisplay = (keyName: string): string => formatHotkeyLabel(keyName, platform);
+  const getHotkeyShortDisplay = (keyName: string): string => formatHotkeyShortLabel(keyName, platform);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -821,10 +774,12 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="hotkey-hint">
-            <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
-            <span>to record</span>
-          </div>
+          {hotkeyLabelsReady && (
+            <div className="hotkey-hint">
+              <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
+              <span>to record</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -947,7 +902,9 @@ function App() {
                       {needsDownload ? 'Download selected model first' : 'Turn your voice to text with a single click'}
                     </span>
                   </div>
-                  <kbd className="action-shortcut">{getHotkeyShortDisplay(currentHotkey)}</kbd>
+                  {hotkeyLabelsReady && (
+                    <kbd className="action-shortcut">{getHotkeyShortDisplay(currentHotkey)}</kbd>
+                  )}
                 </div>
 
                 <div className="action-item" onClick={() => setCurrentPage('settings')}>
@@ -1363,6 +1320,8 @@ function App() {
       isRecording={appState.state === 'recording'}
       onStop={handleToggleRecording}
       onCancel={handleCancelRecording}
+      stopKeyLabel={getHotkeyShortDisplay(currentHotkey)}
+      cancelKeyLabel={getHotkeyShortDisplay(cancelHotkey)}
     />
     </>
   );

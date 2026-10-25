@@ -6,9 +6,13 @@ interface RecordingOverlayProps {
   isRecording: boolean;
   onStop: () => void;
   onCancel: () => void;
+  /** Compact label of the recording hotkey, e.g. "⌥" or "Alt". */
+  stopKeyLabel: string;
+  /** Compact label of the cancel hotkey, e.g. "Esc". */
+  cancelKeyLabel: string;
 }
 
-export function RecordingOverlay({ isRecording, onStop, onCancel }: RecordingOverlayProps) {
+export function RecordingOverlay({ isRecording, onStop, onCancel, stopKeyLabel, cancelKeyLabel }: RecordingOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [waveformData, setWaveformData] = useState<number[]>([]);
 
@@ -106,11 +110,11 @@ export function RecordingOverlay({ isRecording, onStop, onCancel }: RecordingOve
           <div className="recording-actions">
             <button className="recording-btn stop-btn" onClick={onStop}>
               Stop
-              <kbd>⌥</kbd>
+              {stopKeyLabel && <kbd>{stopKeyLabel}</kbd>}
             </button>
             <button className="recording-btn cancel-btn" onClick={onCancel}>
               Cancel
-              <kbd>esc</kbd>
+              {cancelKeyLabel && <kbd>{cancelKeyLabel}</kbd>}
             </button>
           </div>
         </div>

@@ -53,26 +53,53 @@ func TestWindowsOverlayLifecycleAndFocus(t *testing.T) {
 	if result := call("SendMessageW", o.hwnd, 0x21, 0, 0); result != 3 {
 		t.Fatal("mouse clicks can activate overlay")
 	}
-	clicked := make(chan struct{}, 1)
-	o.SetStopCallback(func() { clicked <- struct{}{} })
+	clicked := make(chan string, 1)
+	o.SetStopCallback(func() { clicked <- "stop" })
+	o.SetCancelCallback(func() { clicked <- "cancel" })
 	scale := float64(call("GetDpiForWindow", o.hwnd)) / 96
-	click := func(x, y int) {
-		call("SendMessageW", o.hwnd, 0x202, 0, uintptr(int(float64(x)*scale)|(int(float64(y)*scale)<<16)))
+	click := func(p image.Point, want string) {
+		t.Helper()
+		call("SendMessageW", o.hwnd, 0x202, 0, uintptr(int(float64(p.X)*scale)|(int(float64(p.Y)*scale)<<16)))
+		select {
+		case got := <-clicked:
+			if got != want {
+				t.Fatalf("click at %v triggered %s, want %s", p, got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s callback missing for click at %v", want, p)
+		}
 	}
-	click(250, 82)
-	select {
-	case <-clicked:
-	case <-time.After(time.Second):
-		t.Fatal("stop callback missing")
+	center := func(r image.Rectangle) image.Point { return r.Min.Add(r.Max).Div(2) }
+	o.mu.Lock()
+	stopRect, cancelRect := o.stopRect, o.cancelRect
+	o.mu.Unlock()
+	// Unlabeled captions keep the original click targets.
+	if stopRect != image.Rect(220, 68, 290, 96) || cancelRect != image.Rect(300, 68, 375, 96) {
+		t.Fatalf("unexpected default buttons: %v %v", stopRect, cancelRect)
 	}
+	click(image.Pt(250, 82), "stop")
+	click(image.Pt(330, 82), "cancel")
+
+	// Wide key labels move the buttons; clicks must follow what is drawn.
+	o.SetHotkeyLabels("Shift", "Space")
 	o.SetAudioLevel(0.8)
-	o.SetCancelCallback(func() { clicked <- struct{}{} })
-	click(330, 82)
-	select {
-	case <-clicked:
-	case <-time.After(time.Second):
-		t.Fatal("cancel callback missing")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		o.mu.Lock()
+		stopRect, cancelRect = o.stopRect, o.cancelRect
+		o.mu.Unlock()
+		if cancelRect.Min.X < 300 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	if cancelRect.Min.X >= 300 || stopRect.Max.X >= cancelRect.Min.X {
+		t.Fatalf("buttons did not grow for labels: %v %v", stopRect, cancelRect)
+	}
+	click(center(stopRect), "stop")
+	click(center(cancelRect), "cancel")
+	// The left edge of Cancel used to belong to Stop.
+	click(image.Pt(cancelRect.Min.X+1, 82), "cancel")
 	o.SetStatus("Transcribing...")
 	o.Hide()
 	waitVisible(false)
