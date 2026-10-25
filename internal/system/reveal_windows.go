@@ -42,8 +42,7 @@ func revealFile(path string) error {
 		return fmt.Errorf("locate recording in Explorer: HRESULT 0x%08x", uint32(hr))
 	}
 	defer windows.CoTaskMemFree(pidl)
-	// Pass the parent and an explicit child item, so selection also works on
-	// Explorer versions that only navigate when given a zero-length item list.
+	// Request the parent folder with an explicit child item to select.
 	parentName, err := windows.UTF16PtrFromString(filepath.Dir(windows.UTF16ToString(buffer)))
 	if err != nil {
 		return err

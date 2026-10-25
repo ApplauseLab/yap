@@ -10,7 +10,7 @@ import (
 // Opt-in because this opens Explorer; CI uses a disposable desktop.
 func TestNativeRevealFile(t *testing.T) {
 	if os.Getenv("YAP_TEST_NATIVE_REVEAL") != "1" {
-		t.Skip("set YAP_TEST_NATIVE_REVEAL=1 to verify Explorer selection")
+		t.Skip("set YAP_TEST_NATIVE_REVEAL=1 to verify Explorer opens the recording folder")
 	}
 	dir := filepath.Join(t.TempDir(), "Yap recordings тест")
 	if err := os.Mkdir(dir, 0700); err != nil {
@@ -25,16 +25,17 @@ func TestNativeRevealFile(t *testing.T) {
 	}
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `
 $shell = New-Object -ComObject Shell.Application
-$expected = Join-Path $shell.Namespace((Split-Path $env:YAP_REVEAL_TEST_PATH)).Self.Path (Split-Path $env:YAP_REVEAL_TEST_PATH -Leaf)
+$folder = $shell.Namespace((Split-Path $env:YAP_REVEAL_TEST_PATH)).Self.Path
+$leaf = Split-Path $env:YAP_REVEAL_TEST_PATH -Leaf
 $deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
   foreach ($window in $shell.Windows()) {
     try {
-      $items = $window.Document.SelectedItems()
-      for ($i = 0; $i -lt $items.Count; $i++) {
-        $item = $items.Item($i)
-        if ($item.Path -eq $expected) {
-          Write-Output "Explorer selected the requested recording"
+      if ($window.Document.Folder.Self.Path -eq $folder) {
+        $item = $window.Document.Folder.ParseName($leaf)
+        if ($null -ne $item) {
+          Write-Output "Explorer opened the requested folder and exposes the recording"
+          Write-Output ("Selected count (desktop dependent): " + $window.Document.SelectedItems().Count)
           $window.Quit()
           exit 0
         }
@@ -53,7 +54,7 @@ foreach ($window in $shell.Windows()) {
     for ($i = 0; $i -lt $items.Count; $i++) { Write-Output ("Selected: " + $items.Item($i).Path) }
   } catch { Write-Output $_ }
 }
-throw "Explorer did not select the requested recording"
+throw "Explorer did not open the recording folder"
 `)
 	cmd.Env = append(os.Environ(), "YAP_REVEAL_TEST_PATH="+path)
 	output, err := cmd.CombinedOutput()

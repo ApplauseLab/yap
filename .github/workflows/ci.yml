@@ -68,7 +68,7 @@ jobs:
       - name: Test transcription runtime on Windows
         run: go test -count=1 -v ./internal/transcribe/... ./internal/hotkey/... ./internal/models/... ./internal/sounds/... ./internal/overlay/...
 
-      - name: Verify Windows file manager selection
+      - name: Verify Windows recording folder opens
         env:
           YAP_TEST_NATIVE_REVEAL: '1'
         run: go test -count=1 -v ./internal/system/...
