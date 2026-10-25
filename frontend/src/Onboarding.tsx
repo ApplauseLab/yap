@@ -53,6 +53,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   // The model this onboarding session asked to download. Only its successful
   // completion activates a model and advances the flow.
   const awaitingModelRef = useRef<string | null>(null);
+  const modelCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [micPermissionStatus, setMicPermissionStatus] = useState<string>('undetermined');
   const [accessibilityStatus, setAccessibilityStatus] = useState<string>('undetermined');
   const [hotkeyName, setHotkeyName] = useState<string>('Right Option');
@@ -377,30 +378,47 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const renderModelSelection = () => {
     const recommendedModels = models.filter(m => ['base.en', 'small.en', 'tiny.en'].includes(m.name));
+    const focusableModel = recommendedModels.some(m => m.name === selectedModel)
+      ? selectedModel
+      : recommendedModels[0]?.name;
+
+    // Standard radio-group keyboard pattern: one Tab stop, arrows move and select.
+    const handleModelKeyDown = (e: React.KeyboardEvent, index: number) => {
+      const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+      if (step !== 0) {
+        e.preventDefault();
+        const next = recommendedModels[(index + step + recommendedModels.length) % recommendedModels.length];
+        setSelectedModel(next.name);
+        modelCardRefs.current[next.name]?.focus();
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        setSelectedModel(recommendedModels[index].name);
+      }
+    };
     
     return (
       <div className="onboarding-step model-step">
         <div className="step-header">
-          <h2>Choose a Model</h2>
+          <h2 id="onboarding-model-heading">Choose a Model</h2>
           <p>Select a transcription model. You can always change this later.</p>
         </div>
         
-        <div className="model-list">
-          {recommendedModels.map(model => (
+        <div className="model-list" role="radiogroup" aria-labelledby="onboarding-model-heading">
+          {recommendedModels.map((model, index) => {
+            const idBase = `onboarding-model-${model.name.replace(/[^a-z0-9-]/gi, '-')}`;
+            const recommended = model.name === 'base.en';
+            return (
             <div 
               key={model.name}
               className={`model-card ${selectedModel === model.name ? 'selected' : ''}`}
+              ref={(el) => { modelCardRefs.current[model.name] = el; }}
               role="radio"
               aria-checked={selectedModel === model.name}
-              aria-label={fullModelName(model)}
-              tabIndex={0}
+              aria-label={`${fullModelName(model)}${recommended ? ', recommended' : ''}`}
+              aria-describedby={`${idBase}-size ${idBase}-desc${model.downloaded ? ` ${idBase}-downloaded` : ''}`}
+              tabIndex={model.name === focusableModel ? 0 : -1}
               onClick={() => setSelectedModel(model.name)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSelectedModel(model.name);
-                }
-              }}
+              onKeyDown={(e) => handleModelKeyDown(e, index)}
             >
               <div className="model-radio">
                 <div className={`radio-dot ${selectedModel === model.name ? 'active' : ''}`} />
@@ -410,32 +428,29 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <div className="model-name">
                     <span className="model-title">{model.displayName}</span>
                     {model.englishOnly && <span className="model-tag" title="English only">EN</span>}
-                    {model.name === 'base.en' && <span className="recommended-badge">Recommended</span>}
+                    {recommended && <span className="recommended-badge">Recommended</span>}
                   </div>
                   <div className="model-meta">
-                    <span className="model-size">{model.size}</span>
-                    <span
-                      className="model-status"
-                      role={model.downloaded ? 'img' : undefined}
-                      aria-label={model.downloaded ? 'Downloaded' : undefined}
-                      title={model.downloaded ? 'Already downloaded' : undefined}
-                    >
+                    <span className="model-size" id={`${idBase}-size`}>{model.size}</span>
+                    <span className="model-status" aria-hidden="true" title={model.downloaded ? 'Already downloaded' : undefined}>
                       {model.downloaded && (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                           <polyline points="20 6 9 17 4 12"/>
                         </svg>
                       )}
                     </span>
+                    {model.downloaded && <span className="onboarding-sr-only" id={`${idBase}-downloaded`}>Already downloaded</span>}
                   </div>
                 </div>
-                <div className="model-desc">
+                <div className="model-desc" id={`${idBase}-desc`}>
                   {model.name === 'tiny.en' && 'Fastest option, great for quick notes and simple dictation'}
                   {model.name === 'base.en' && 'Best balance of speed and accuracy for everyday use'}
                   {model.name === 'small.en' && 'Higher accuracy for detailed transcription, but much slower on CPU'}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         
         <div className="step-actions">

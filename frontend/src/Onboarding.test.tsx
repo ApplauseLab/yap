@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Api from '../wailsjs/go/main/App';
 import { Onboarding } from './Onboarding';
 import { EventsEmit, listenerCount, resetListeners } from './test/runtimeMock';
-import { MODELS, downloadState } from './test/fixtures';
+import { MODELS, downloadState, model } from './test/fixtures';
 import { IDLE_DOWNLOAD } from './modelTypes';
 
 vi.mock('../wailsjs/runtime/runtime', async () => await import('./test/runtimeMock'));
@@ -106,5 +106,71 @@ describe('Onboarding model download', () => {
     expect(await screen.findByText('another model is already downloading: small')).toBeInTheDocument();
     act(() => EventsEmit('modelDownloadState', downloadState({ model: 'tiny.en', status: 'completed', progress: 100 })));
     expect(api.SetModel).not.toHaveBeenCalled();
+  });
+
+});
+
+describe('Onboarding model choice', () => {
+  beforeEach(() => {
+    resetListeners();
+    Object.values(api).forEach((fn) => {
+      fn.mockReset();
+      fn.mockImplementation(() => Promise.resolve());
+    });
+  });
+
+  async function openModelStep() {
+    api.GetModels.mockResolvedValue(MODELS.concat(model({ name: 'small.en', displayName: 'Whisper Small', size: '488 MB' })));
+    api.GetModelDownloadState.mockResolvedValue(IDLE_DOWNLOAD);
+    api.GetRecordingHotkeyDisplayName.mockResolvedValue('Right Option');
+    api.GetPlatform.mockResolvedValue('darwin');
+    render(<Onboarding onComplete={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Get Started' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    return screen.findByRole('radiogroup', { name: 'Choose a Model' });
+  }
+
+  it('groups the cards and describes size, purpose, and download state', async () => {
+    const group = await openModelStep();
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Whisper Tiny (English)',
+      'Whisper Base (English), recommended',
+      'Whisper Small (English)',
+    ]);
+    const base = within(group).getByRole('radio', { name: 'Whisper Base (English), recommended' });
+    expect(base).toHaveAccessibleDescription(/148 MB.*Best balance of speed and accuracy.*Already downloaded/);
+    const small = within(group).getByRole('radio', { name: 'Whisper Small (English)' });
+    expect(small).toHaveAccessibleDescription(/488 MB/);
+    expect(small).not.toHaveAccessibleDescription(/Already downloaded/);
+    expect(within(base).getByText('Recommended')).toBeInTheDocument();
+    expect(within(small).queryByText('Recommended')).toBeNull();
+    for (const radio of radios) expect(within(radio).getByText('EN')).toBeInTheDocument();
+  });
+
+  it('uses one Tab stop and moves the selection with arrow keys', async () => {
+    const group = await openModelStep();
+    const radio = (name: string) => within(group).getByRole('radio', { name });
+    const tiny = radio('Whisper Tiny (English)');
+    const base = radio('Whisper Base (English), recommended');
+    const small = radio('Whisper Small (English)');
+    expect(base).toHaveAttribute('aria-checked', 'true');
+    expect([tiny, base, small].map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+
+    fireEvent.keyDown(base, { key: 'ArrowDown' });
+    expect(small).toHaveAttribute('aria-checked', 'true');
+    expect(small).toHaveFocus();
+    expect([tiny, base, small].map((r) => r.tabIndex)).toEqual([-1, -1, 0]);
+
+    fireEvent.keyDown(small, { key: 'ArrowDown' });
+    expect(tiny).toHaveAttribute('aria-checked', 'true');
+    expect(tiny).toHaveFocus();
+
+    fireEvent.keyDown(tiny, { key: 'ArrowUp' });
+    expect(small).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.keyDown(base, { key: ' ' });
+    expect(base).toHaveAttribute('aria-checked', 'true');
+    expect(small).toHaveAttribute('aria-checked', 'false');
   });
 });
