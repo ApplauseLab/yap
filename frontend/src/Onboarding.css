@@ -221,17 +221,41 @@
 .model-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  min-height: 24px;
 }
 
 .model-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  white-space: nowrap;
+}
+
+.model-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-tag {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.model-card.selected .model-tag {
+  background: var(--bg-active);
 }
 
 .recommended-badge {
@@ -244,25 +268,55 @@
   text-transform: uppercase;
 }
 
+.model-name .recommended-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.3px;
+}
+
+.model-meta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .model-size {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-card);
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-card.selected .model-size {
+  background: var(--bg-active);
+}
+
+/* Always reserved so sizes line up whether or not a model is downloaded */
+.model-status {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--success);
 }
 
 .model-desc {
   font-size: 13px;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 4px;
   line-height: 1.4;
 }
 
-.model-downloaded {
-  color: var(--success);
-  flex-shrink: 0;
+.model-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* Provider selection step */

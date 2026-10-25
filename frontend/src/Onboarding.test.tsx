@@ -25,7 +25,7 @@ async function startTinyDownload(prepare?: () => void) {
   render(<Onboarding onComplete={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: 'Get Started' }));
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-  fireEvent.click(await screen.findByText('Whisper Tiny (English)'));
+  fireEvent.click(await screen.findByRole('radio', { name: 'Whisper Tiny (English)' }));
   fireEvent.click(screen.getByRole('button', { name: 'Download & Continue' }));
   await waitFor(() => expect(api.DownloadModel).toHaveBeenCalledWith('tiny.en'));
 }

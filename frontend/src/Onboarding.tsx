@@ -390,7 +390,17 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             <div 
               key={model.name}
               className={`model-card ${selectedModel === model.name ? 'selected' : ''}`}
+              role="radio"
+              aria-checked={selectedModel === model.name}
+              aria-label={fullModelName(model)}
+              tabIndex={0}
               onClick={() => setSelectedModel(model.name)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedModel(model.name);
+                }
+              }}
             >
               <div className="model-radio">
                 <div className={`radio-dot ${selectedModel === model.name ? 'active' : ''}`} />
@@ -398,10 +408,25 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div className="model-info">
                 <div className="model-header">
                   <div className="model-name">
-                    {fullModelName(model)}
+                    <span className="model-title">{model.displayName}</span>
+                    {model.englishOnly && <span className="model-tag" title="English only">EN</span>}
                     {model.name === 'base.en' && <span className="recommended-badge">Recommended</span>}
                   </div>
-                  <span className="model-size">{model.size}</span>
+                  <div className="model-meta">
+                    <span className="model-size">{model.size}</span>
+                    <span
+                      className="model-status"
+                      role={model.downloaded ? 'img' : undefined}
+                      aria-label={model.downloaded ? 'Downloaded' : undefined}
+                      title={model.downloaded ? 'Already downloaded' : undefined}
+                    >
+                      {model.downloaded && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      )}
+                    </span>
+                  </div>
                 </div>
                 <div className="model-desc">
                   {model.name === 'tiny.en' && 'Fastest option, great for quick notes and simple dictation'}
@@ -409,13 +434,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   {model.name === 'small.en' && 'Higher accuracy for detailed transcription, but much slower on CPU'}
                 </div>
               </div>
-              {model.downloaded && (
-                <div className="model-downloaded">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </div>
-              )}
             </div>
           ))}
         </div>
