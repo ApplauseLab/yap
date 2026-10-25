@@ -904,3 +904,56 @@
   font-weight: 700;
   letter-spacing: 0.2px;
 }
+
+/* Keep the header usable at the 850x550 minimum: chips scroll, search shrinks */
+.header-actions {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+  padding-left: 16px;
+}
+
+.page-title {
+  flex-shrink: 0;
+}
+
+.ml-toolbar {
+  min-width: 0;
+}
+
+.ml-chips {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ml-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.ml-toolbar > .ml-icon-btn,
+.ml-menu-anchor {
+  flex-shrink: 0;
+}
+
+.ml-search {
+  flex: 0 1 190px;
+  min-width: 110px;
+}
+
+.ml-search input {
+  width: 100%;
+  min-width: 0;
+}
+
+.ml-star:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.ml-star[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}

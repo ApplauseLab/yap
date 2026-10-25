@@ -114,18 +114,31 @@ describe('ModelsLibrary table', () => {
     expect(visibleNames()).toHaveLength(MODELS.length);
   });
 
-  it('toggles favorites optimistically and rolls back on failure', async () => {
-    const onToggleFavorite = vi.fn((_model: string, _favorite: boolean): Promise<void> => Promise.resolve());
-    renderLibrary({ onToggleFavorite });
-    const star = within(row('small')).getByRole('button', { name: 'Add Whisper Small to favorites' });
-    fireEvent.click(star);
+  it('stars optimistically, blocks repeat clicks while saving, then follows the server', async () => {
+    let resolveSave!: () => void;
+    const onToggleFavorite = vi.fn((_model: string, _favorite: boolean) => new Promise<void>((r) => { resolveSave = r; }));
+    const { props, rerender } = renderLibrary({ onToggleFavorite });
+    fireEvent.click(within(row('small')).getByRole('button', { name: 'Add Whisper Small to favorites' }));
     expect(onToggleFavorite).toHaveBeenCalledWith('small', true);
-    expect(within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' })).toHaveAttribute('aria-pressed', 'true');
+    const saving = within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' });
+    expect(saving).toHaveAttribute('aria-pressed', 'true');
+    expect(saving).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(saving);
+    expect(onToggleFavorite).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).toBeNull();
 
-    onToggleFavorite.mockImplementationOnce(() => Promise.reject('config is read-only'));
-    fireEvent.click(within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' }));
-    await waitFor(() => expect(within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' })).toBeInTheDocument());
+    // The app refreshes models before the save resolves.
+    rerender(<ModelsLibrary {...props} onToggleFavorite={onToggleFavorite} models={MODELS.map((m) => (m.name === 'small' ? { ...m, favorite: true } : m))} />);
+    await act(async () => resolveSave());
+    expect(within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('shows the server state and an error when saving a favorite fails', async () => {
+    renderLibrary({ onToggleFavorite: vi.fn(() => Promise.reject('config is read-only')) });
+    fireEvent.click(within(row('small')).getByRole('button', { name: 'Add Whisper Small to favorites' }));
+    const panel = await screen.findByRole('dialog', { name: 'Whisper Small details' });
+    expect(within(panel).getByRole('alert')).toHaveTextContent('Couldn’t update favorites: config is read-only');
+    expect(within(row('small')).getByRole('button', { name: 'Add Whisper Small to favorites' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('downloads from the row icon without opening details', async () => {
@@ -202,6 +215,24 @@ describe('ModelsLibrary detail panel', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('returns focus to the row after closing', () => {
+    renderLibrary();
+    const cell = within(row('large-v3')).getByRole('button', { name: 'Show Whisper Large v3 details' });
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Close details' })).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(cell).toHaveFocus();
+  });
+
+  it('ignores Escape already handled by the app (e.g. cancelling a recording)', () => {
+    renderLibrary({ focusModel: 'small' });
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    event.preventDefault();
+    document.dispatchEvent(event);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('opens the focused model on mount', () => {
     renderLibrary({ focusModel: 'small' });
     expect(detail()).toHaveAccessibleName('Whisper Small details');
@@ -262,11 +293,13 @@ describe('ModelsLibrary detail panel', () => {
   });
 
   it('stars from the detail header', async () => {
-    const { props } = renderLibrary({ focusModel: 'small' });
-    await act(async () => {
-      fireEvent.click(within(detail()).getByRole('button', { name: 'Add Whisper Small to favorites' }));
-    });
-    expect(props.onToggleFavorite).toHaveBeenCalledWith('small', true);
+    let resolveSave!: () => void;
+    const onToggleFavorite = vi.fn((_model: string, _favorite: boolean) => new Promise<void>((r) => { resolveSave = r; }));
+    renderLibrary({ focusModel: 'small', onToggleFavorite });
+    fireEvent.click(within(detail()).getByRole('button', { name: 'Add Whisper Small to favorites' }));
+    expect(onToggleFavorite).toHaveBeenCalledWith('small', true);
+    expect(within(detail()).getByRole('button', { name: 'Remove Whisper Small from favorites' })).toBeDisabled();
     expect(within(row('small')).getByRole('button', { name: 'Remove Whisper Small from favorites' })).toBeInTheDocument();
+    await act(async () => resolveSave());
   });
 });

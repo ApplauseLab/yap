@@ -197,9 +197,10 @@ interface DetailProps {
   onUse: (model: string) => Promise<void>;
   onDelete: (model: string) => Promise<void>;
   onToggleFavorite: () => void;
+  favoriteSaving: boolean;
 }
 
-function ModelDetail({ model, active, downloadState, actionError, pending, onClose, onRun, onDownload, onCancel, onUse, onDelete, onToggleFavorite }: DetailProps) {
+function ModelDetail({ model, active, downloadState, actionError, pending, onClose, onRun, onDownload, onCancel, onUse, onDelete, onToggleFavorite, favoriteSaving }: DetailProps) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const status = statusFor(model, downloadState);
@@ -259,6 +260,7 @@ function ModelDetail({ model, active, downloadState, actionError, pending, onClo
           className={`ml-icon-btn ml-star ${model.favorite ? 'on' : ''}`}
           aria-label={model.favorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
           aria-pressed={model.favorite}
+          disabled={favoriteSaving}
           onClick={onToggleFavorite}
         >
           <Icon name={model.favorite ? 'star-filled' : 'star'} />
@@ -336,6 +338,8 @@ export function ModelsLibrary({
   const [selected, setSelected] = useState<string | null>(focusModel ?? null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<string | null>(null);
+  // Optimistic star state, kept only while the save is in flight; afterwards
+  // the refreshed models prop is the source of truth.
   const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -372,14 +376,27 @@ export function ModelsLibrary({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      // App cancels an active recording on Escape and marks the event handled.
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (menuOpen) setMenuOpen(false);
-      else if (selected) setSelected(null);
+      else if (selected) closeDetail();
       else if (searchOpen) { setSearchOpen(false); setQuery(''); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [menuOpen, selected, searchOpen]);
+  });
+
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  // Return focus to the row that opened the panel, so keyboard users keep
+  // their place.
+  const closeDetail = () => {
+    const name = selected;
+    setSelected(null);
+    if (!name) return;
+    const cell = tableRef.current?.querySelector<HTMLElement>(`[data-testid="model-row-${name}"] .ml-name-cell`);
+    cell?.focus();
+  };
 
   const run = async (name: string, action: (model: string) => Promise<void>) => {
     setPending(name);
@@ -394,14 +411,25 @@ export function ModelsLibrary({
     }
   };
 
+  const clearFavoriteOverride = (name: string) => {
+    setFavoriteOverrides((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
   const toggleFavorite = async (model: ModelInfo) => {
+    if (model.name in favoriteOverrides) return;
     const next = !model.favorite;
     setFavoriteOverrides((prev) => ({ ...prev, [model.name]: next }));
     try {
       await onToggleFavorite(model.name, next);
     } catch (err) {
-      setFavoriteOverrides((prev) => ({ ...prev, [model.name]: !next }));
-      setErrors((prev) => ({ ...prev, [model.name]: errorMessage(err) }));
+      setErrors((prev) => ({ ...prev, [model.name]: `Couldn’t update favorites: ${errorMessage(err)}` }));
+      setSelected(model.name);
+    } finally {
+      clearFavoriteOverride(model.name);
     }
   };
 
@@ -432,12 +460,16 @@ export function ModelsLibrary({
 
   const toolbar = (
     <div className="ml-toolbar">
-      {FILTER_ORDER.filter((f) => filters.has(f)).map((f) => (
-        <span key={f} className="ml-chip">
-          {FILTER_LABELS[f]}
-          <button aria-label={`Remove ${FILTER_LABELS[f]} filter`} onClick={() => toggleFilter(f)}><Icon name="close" /></button>
-        </span>
-      ))}
+      {filters.size > 0 && (
+        <div className="ml-chips">
+          {FILTER_ORDER.filter((f) => filters.has(f)).map((f) => (
+            <span key={f} className="ml-chip">
+              {FILTER_LABELS[f]}
+              <button aria-label={`Remove ${FILTER_LABELS[f]} filter`} onClick={() => toggleFilter(f)}><Icon name="close" /></button>
+            </span>
+          ))}
+        </div>
+      )}
       {searchOpen ? (
         <div className="ml-search">
           <Icon name="search" />
@@ -541,7 +573,7 @@ export function ModelsLibrary({
       )}
 
       <div className="ml-table-wrap">
-        <table className="ml-table">
+        <table className="ml-table" ref={tableRef}>
           <thead>
             <tr>
               <th className="col-star"><span className="sr-only">Favorite</span></th>
@@ -566,6 +598,7 @@ export function ModelsLibrary({
                       className={`ml-icon-btn ml-star ${model.favorite ? 'on' : ''}`}
                       aria-label={model.favorite ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
                       aria-pressed={model.favorite}
+                      aria-disabled={model.name in favoriteOverrides || undefined}
                       onClick={(e) => { e.stopPropagation(); toggleFavorite(model); }}
                     >
                       <Icon name={model.favorite ? 'star-filled' : 'star'} />
@@ -597,13 +630,14 @@ export function ModelsLibrary({
           downloadState={downloadState}
           actionError={errors[selectedModel.name] ?? ''}
           pending={pending === selectedModel.name}
-          onClose={() => setSelected(null)}
+          onClose={closeDetail}
           onRun={(action) => run(selectedModel.name, action)}
           onDownload={onDownload}
           onCancel={onCancel}
           onUse={onUse}
           onDelete={onDelete}
           onToggleFavorite={() => toggleFavorite(selectedModel)}
+          favoriteSaving={selectedModel.name in favoriteOverrides}
         />
       )}
     </div>

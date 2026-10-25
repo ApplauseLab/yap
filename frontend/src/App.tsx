@@ -276,9 +276,7 @@ function App() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  const refreshModels = useCallback(() => {
-    GetModels().then((m: ModelInfo[]) => setModels(m));
-  }, []);
+  const refreshModels = useCallback(() => GetModels().then((m: ModelInfo[]) => setModels(m)), []);
 
   const refreshAppState = useCallback(() => {
     GetState().then((s: AppState) => setAppState(s));
@@ -450,8 +448,11 @@ function App() {
   }, [refreshModels, refreshAppState]);
 
   const handleToggleFavorite = useCallback(async (model: string, favorite: boolean) => {
-    await SetModelFavorite(model, favorite);
-    refreshModels();
+    try {
+      await SetModelFavorite(model, favorite);
+    } finally {
+      await refreshModels();
+    }
   }, [refreshModels]);
 
   const openModelsLibrary = useCallback((focus?: string) => {
