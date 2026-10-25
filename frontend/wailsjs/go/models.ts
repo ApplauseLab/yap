@@ -66,8 +66,15 @@ export namespace main {
 	    name: string;
 	    displayName: string;
 	    size: string;
+	    sizeBytes: number;
 	    downloaded: boolean;
 	    englishOnly: boolean;
+	    provider: string;
+	    speed: number;
+	    accuracy: number;
+	    useCase: string;
+	    recommendation: string;
+	    favorite: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelInfo(source);
@@ -78,8 +85,15 @@ export namespace main {
 	        this.name = source["name"];
 	        this.displayName = source["displayName"];
 	        this.size = source["size"];
+	        this.sizeBytes = source["sizeBytes"];
 	        this.downloaded = source["downloaded"];
 	        this.englishOnly = source["englishOnly"];
+	        this.provider = source["provider"];
+	        this.speed = source["speed"];
+	        this.accuracy = source["accuracy"];
+	        this.useCase = source["useCase"];
+	        this.recommendation = source["recommendation"];
+	        this.favorite = source["favorite"];
 	    }
 	}
 	export class UsageStats {
@@ -120,6 +134,7 @@ export namespace models {
 	    cancelHotkey: string;
 	    soundEnabled?: boolean;
 	    onboardingCompleted: boolean;
+	    favoriteModels?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -137,6 +152,29 @@ export namespace models {
 	        this.cancelHotkey = source["cancelHotkey"];
 	        this.soundEnabled = source["soundEnabled"];
 	        this.onboardingCompleted = source["onboardingCompleted"];
+	        this.favoriteModels = source["favoriteModels"];
+	    }
+	}
+	export class DownloadState {
+	    model: string;
+	    status: string;
+	    downloaded: number;
+	    total: number;
+	    progress: number;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.status = source["status"];
+	        this.downloaded = source["downloaded"];
+	        this.total = source["total"];
+	        this.progress = source["progress"];
+	        this.error = source["error"];
 	    }
 	}
 

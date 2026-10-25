@@ -4,6 +4,8 @@ import appIcon from './assets/appicon.png';
 import {
   GetModels,
   DownloadModel,
+  CancelModelDownload,
+  GetModelDownloadState,
   SetModel,
   SetProvider,
   SetOpenAIKey,
@@ -17,21 +19,8 @@ import {
   GetPlatform,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
-
-interface ModelInfo {
-  name: string;
-  displayName: string;
-  size: string;
-  downloaded: boolean;
-  englishOnly: boolean;
-}
-
-interface DownloadProgress {
-  model: string;
-  downloaded: number;
-  total: number;
-  progress: number;
-}
+import { useModelDownload } from './useModelDownload';
+import { ModelDownloadState, ModelInfo, errorMessage, formatBytes, fullModelName, isDownloadActive } from './modelTypes';
 
 interface AppState {
   state: string;
@@ -59,8 +48,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [selectedProvider, setSelectedProvider] = useState<Provider>('local');
   const [apiKey, setApiKey] = useState<string>('');
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const downloadState = useModelDownload();
+  const [downloadStartError, setDownloadStartError] = useState<string | null>(null);
+  // The model this onboarding session asked to download. Only its successful
+  // completion activates a model and advances the flow.
+  const awaitingModelRef = useRef<string | null>(null);
+  const modelCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [micPermissionStatus, setMicPermissionStatus] = useState<string>('undetermined');
   const [accessibilityStatus, setAccessibilityStatus] = useState<string>('undetermined');
   const [hotkeyName, setHotkeyName] = useState<string>('Right Option');
@@ -90,44 +83,47 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     GetPlatform().then((p: string) => {
       setPlatform(p);
     });
-
-    // Set up event listeners for download progress
-    const progressHandler = (progress: DownloadProgress) => {
-      setDownloadProgress(progress);
-      setDownloadError(null);
-    };
-
-    const completeHandler = async (data: { model: string }) => {
-      setDownloadProgress(null);
-      try {
-        await SetModel(data.model);
-      } catch (err) {
-        setDownloadError(String(err));
-        return;
-      }
-      // Refresh models list
-      GetModels().then((modelList: ModelInfo[]) => {
-        setModels(modelList);
-      });
-      // Move to mic permission request step
-      setStep('micRequest');
-    };
-
-    const errorHandler = (data: { model: string; error: string }) => {
-      setDownloadProgress(null);
-      setDownloadError(data.error);
-    };
-
-    const cleanupProgress = EventsOn('downloadProgress', progressHandler);
-    const cleanupComplete = EventsOn('downloadComplete', completeHandler);
-    const cleanupError = EventsOn('downloadError', errorHandler);
-
-    return () => {
-      cleanupProgress();
-      cleanupComplete();
-      cleanupError();
-    };
   }, []);
+
+  useEffect(() => {
+    const awaiting = awaitingModelRef.current;
+    if (!awaiting || downloadState.model !== awaiting || downloadState.status !== 'completed') return;
+    awaitingModelRef.current = null;
+    SetModel(awaiting)
+      .then(() => {
+        GetModels().then((modelList: ModelInfo[]) => setModels(modelList));
+        setStep('micRequest');
+      })
+      .catch((err) => {
+        LogError(`[frontend] Activating downloaded model failed: ${err}`);
+        setDownloadStartError(errorMessage(err));
+      });
+  }, [downloadState.model, downloadState.status]);
+
+  const startSelectedDownload = useCallback(async () => {
+    setDownloadStartError(null);
+    awaitingModelRef.current = selectedModel;
+    try {
+      await DownloadModel(selectedModel);
+    } catch (err) {
+      // Already downloading this exact model (e.g. after a remount): keep
+      // waiting. Ask the backend, since the rendered state may lag behind.
+      const current = await GetModelDownloadState().catch(() => null) as ModelDownloadState | null;
+      if (current && isDownloadActive(current) && current.model === selectedModel) return;
+      awaitingModelRef.current = null;
+      setDownloadStartError(errorMessage(err));
+    }
+  }, [selectedModel]);
+
+  const handleCancelDownload = useCallback(async () => {
+    awaitingModelRef.current = null;
+    try {
+      await CancelModelDownload(selectedModel);
+    } catch (err) {
+      LogError(`[frontend] Cancel onboarding download failed: ${err}`);
+    }
+    setStep('model');
+  }, [selectedModel]);
 
   const handleProviderSelect = useCallback(async () => {
     await SetProvider(selectedProvider);
@@ -159,17 +155,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       // Model already downloaded, skip to mic permission request
       setStep('micRequest');
     } else {
-      // Start download
       setStep('download');
-      setDownloadError(null);
-      await DownloadModel(selectedModel);
+      await startSelectedDownload();
     }
-  }, [selectedModel, models]);
-
-  const handleRetryDownload = useCallback(async () => {
-    setDownloadError(null);
-    await DownloadModel(selectedModel);
-  }, [selectedModel]);
+  }, [selectedModel, models, startSelectedDownload]);
 
   const handleCheckMicPermission = useCallback(async () => {
     const status = await CheckMicrophonePermission();
@@ -389,20 +378,47 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const renderModelSelection = () => {
     const recommendedModels = models.filter(m => ['base.en', 'small.en', 'tiny.en'].includes(m.name));
+    const focusableModel = recommendedModels.some(m => m.name === selectedModel)
+      ? selectedModel
+      : recommendedModels[0]?.name;
+
+    // Standard radio-group keyboard pattern: one Tab stop, arrows move and select.
+    const handleModelKeyDown = (e: React.KeyboardEvent, index: number) => {
+      const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+      if (step !== 0) {
+        e.preventDefault();
+        const next = recommendedModels[(index + step + recommendedModels.length) % recommendedModels.length];
+        setSelectedModel(next.name);
+        modelCardRefs.current[next.name]?.focus();
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        setSelectedModel(recommendedModels[index].name);
+      }
+    };
     
     return (
       <div className="onboarding-step model-step">
         <div className="step-header">
-          <h2>Choose a Model</h2>
+          <h2 id="onboarding-model-heading">Choose a Model</h2>
           <p>Select a transcription model. You can always change this later.</p>
         </div>
         
-        <div className="model-list">
-          {recommendedModels.map(model => (
+        <div className="model-list" role="radiogroup" aria-labelledby="onboarding-model-heading">
+          {recommendedModels.map((model, index) => {
+            const idBase = `onboarding-model-${model.name.replace(/[^a-z0-9-]/gi, '-')}`;
+            const recommended = model.name === 'base.en';
+            return (
             <div 
               key={model.name}
               className={`model-card ${selectedModel === model.name ? 'selected' : ''}`}
+              ref={(el) => { modelCardRefs.current[model.name] = el; }}
+              role="radio"
+              aria-checked={selectedModel === model.name}
+              aria-label={`${fullModelName(model)}${recommended ? ', recommended' : ''}`}
+              aria-describedby={`${idBase}-size ${idBase}-desc${model.downloaded ? ` ${idBase}-downloaded` : ''}`}
+              tabIndex={model.name === focusableModel ? 0 : -1}
               onClick={() => setSelectedModel(model.name)}
+              onKeyDown={(e) => handleModelKeyDown(e, index)}
             >
               <div className="model-radio">
                 <div className={`radio-dot ${selectedModel === model.name ? 'active' : ''}`} />
@@ -410,26 +426,31 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div className="model-info">
                 <div className="model-header">
                   <div className="model-name">
-                    {model.displayName}
-                    {model.name === 'base.en' && <span className="recommended-badge">Recommended</span>}
+                    <span className="model-title">{model.displayName}</span>
+                    {model.englishOnly && <span className="model-tag" title="English only">EN</span>}
+                    {recommended && <span className="recommended-badge">Recommended</span>}
                   </div>
-                  <span className="model-size">{model.size}</span>
+                  <div className="model-meta">
+                    <span className="model-size" id={`${idBase}-size`}>{model.size}</span>
+                    <span className="model-status" aria-hidden="true" title={model.downloaded ? 'Already downloaded' : undefined}>
+                      {model.downloaded && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      )}
+                    </span>
+                    {model.downloaded && <span className="onboarding-sr-only" id={`${idBase}-downloaded`}>Already downloaded</span>}
+                  </div>
                 </div>
-                <div className="model-desc">
+                <div className="model-desc" id={`${idBase}-desc`}>
                   {model.name === 'tiny.en' && 'Fastest option, great for quick notes and simple dictation'}
                   {model.name === 'base.en' && 'Best balance of speed and accuracy for everyday use'}
                   {model.name === 'small.en' && 'Higher accuracy for detailed transcription, but much slower on CPU'}
                 </div>
               </div>
-              {model.downloaded && (
-                <div className="model-downloaded">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </div>
-              )}
             </div>
-          ))}
+            );
+          })}
         </div>
         
         <div className="step-actions">
@@ -446,7 +467,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const renderDownload = () => {
     const model = models.find(m => m.name === selectedModel);
+    const matching = downloadState.model === selectedModel;
+    const downloadProgress = matching && isDownloadActive(downloadState) ? downloadState : null;
     const progress = downloadProgress?.progress || 0;
+    const downloadError = downloadStartError
+      || (matching && downloadState.status === 'failed' ? downloadState.error : null)
+      || (matching && downloadState.status === 'cancelled' ? 'The download was cancelled.' : null);
     
     return (
       <div className="onboarding-step download-step">
@@ -494,8 +520,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             </>
           ) : downloadProgress ? (
             <>
-              <h2 className="download-title">Downloading {model?.displayName}</h2>
-              <p className="download-subtitle">A local model is required before Yap can transcribe offline. {model?.size} - {progress.toFixed(0)}%</p>
+              <h2 className="download-title">Downloading {model ? fullModelName(model) : selectedModel}</h2>
+              <p className="download-subtitle">A local model is required before Yap can transcribe offline. {formatBytes(downloadProgress.downloaded)} of {formatBytes(downloadProgress.total || model?.sizeBytes || 0)} - {progress.toFixed(0)}%</p>
             </>
           ) : (
             <>
@@ -511,10 +537,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <button className="secondary-button" onClick={() => setStep('model')}>
                 Back
               </button>
-              <button className="primary-button" onClick={handleRetryDownload}>
+              <button className="primary-button" onClick={startSelectedDownload}>
                 Retry Download
               </button>
             </>
+          ) : downloadProgress ? (
+            <button className="secondary-button" onClick={handleCancelDownload} disabled={downloadProgress.status === 'cancelling'}>
+              Cancel
+            </button>
           ) : null}
         </div>
       </div>

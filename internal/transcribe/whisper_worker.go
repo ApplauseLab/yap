@@ -74,7 +74,7 @@ func (b *lockedBuffer) String() string {
 	return trimCommandOutput(b.buf.String())
 }
 
-func (e *LocalEngine) transcribePersistent(ctx context.Context, wavData []byte, modelPath string) (string, error) {
+func (e *LocalEngine) transcribePersistent(ctx context.Context, wavData []byte, modelPath string, language string) (string, error) {
 	operationCtx, cancel, err := e.operationContext(ctx)
 	if err != nil {
 		return "", err
@@ -92,7 +92,7 @@ func (e *LocalEngine) transcribePersistent(ctx context.Context, wavData []byte, 
 		}
 		return "", err
 	}
-	text, err := worker.transcribe(ctx, wavData)
+	text, err := worker.transcribe(ctx, wavData, language)
 	if err == nil {
 		e.lastBackend = workerBackendName(worker)
 		return text, nil
@@ -115,7 +115,7 @@ func (e *LocalEngine) transcribePersistent(ctx context.Context, wavData []byte, 
 		}
 		return "", fmt.Errorf("Metal worker failed: %v; CPU worker failed to start: %w", err, startErr)
 	}
-	text, err = worker.transcribe(ctx, wavData)
+	text, err = worker.transcribe(ctx, wavData, language)
 	if err == nil {
 		e.lastBackend = workerBackendName(worker)
 	} else {
@@ -337,7 +337,7 @@ func (w *whisperWorker) waitReady(ctx context.Context) error {
 	}
 }
 
-func (w *whisperWorker) transcribe(ctx context.Context, wavData []byte) (string, error) {
+func (w *whisperWorker) transcribe(ctx context.Context, wavData []byte, language string) (string, error) {
 	started := time.Now()
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
@@ -349,6 +349,7 @@ func (w *whisperWorker) transcribe(ctx context.Context, wavData []byte) (string,
 		return "", err
 	}
 	_ = form.WriteField("response_format", "text")
+	_ = form.WriteField("language", language)
 	_ = form.WriteField("no_timestamps", "true")
 	if err := form.Close(); err != nil {
 		return "", err

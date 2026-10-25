@@ -8,6 +8,8 @@ import (
 	goruntime "runtime"
 	"sync"
 	"time"
+
+	"yap/internal/paths"
 )
 
 const retentionDays = 7
@@ -37,12 +39,12 @@ func Init() error {
 
 // New creates a file logger under the user's Yap config directory.
 func New() (*FileLogger, error) {
-	configDir, err := os.UserConfigDir()
+	dataDir, err := paths.AppDataDir()
 	if err != nil {
 		return nil, err
 	}
 
-	logsDir := filepath.Join(configDir, "yap", "logs")
+	logsDir := filepath.Join(dataDir, "logs")
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return nil, err
 	}
@@ -74,11 +76,11 @@ func GetLogsDir() string {
 	if defaultLogger != nil {
 		return defaultLogger.logsDir
 	}
-	configDir, err := os.UserConfigDir()
+	dataDir, err := paths.AppDataDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(configDir, "yap", "logs")
+	return filepath.Join(dataDir, "logs")
 }
 
 // Close flushes the shutdown marker and closes the active log file.
