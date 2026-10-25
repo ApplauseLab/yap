@@ -15,12 +15,13 @@ vi.mock('../wailsjs/go/main/App', async (importOriginal) => {
 const api = Api as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
 // tiny.en is not downloaded in the fixtures, so onboarding must download it.
-async function startTinyDownload() {
+async function startTinyDownload(prepare?: () => void) {
   api.GetModels.mockResolvedValue(MODELS);
   api.GetModelDownloadState.mockResolvedValue(IDLE_DOWNLOAD);
   api.GetRecordingHotkeyDisplayName.mockResolvedValue('Right Option');
   api.GetPlatform.mockResolvedValue('darwin');
   api.CheckMicrophonePermission.mockResolvedValue('undetermined');
+  prepare?.();
   render(<Onboarding onComplete={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: 'Get Started' }));
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
@@ -76,6 +77,33 @@ describe('Onboarding model download', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(api.CancelModelDownload).toHaveBeenCalledWith('tiny.en'));
     expect(await screen.findByText('Choose a Model')).toBeInTheDocument();
+    act(() => EventsEmit('modelDownloadState', downloadState({ model: 'tiny.en', status: 'completed', progress: 100 })));
+    expect(api.SetModel).not.toHaveBeenCalled();
+  });
+
+  it('keeps waiting when the backend is already downloading the same model', async () => {
+    await startTinyDownload(() => {
+      api.DownloadModel.mockRejectedValue('another model is already downloading: tiny.en');
+      // Mount sees idle; the backend is already downloading when rejected.
+      api.GetModelDownloadState
+        .mockResolvedValueOnce(IDLE_DOWNLOAD)
+        .mockResolvedValue(downloadState({ model: 'tiny.en', status: 'downloading', total: 77704715 }));
+    });
+    await waitFor(() => expect(api.GetModelDownloadState).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Download Failed')).toBeNull();
+
+    act(() => EventsEmit('modelDownloadState', downloadState({ model: 'tiny.en', status: 'completed', progress: 100 })));
+    await waitFor(() => expect(api.SetModel).toHaveBeenCalledWith('tiny.en'));
+  });
+
+  it('shows a busy rejection for a different model', async () => {
+    await startTinyDownload(() => {
+      api.DownloadModel.mockRejectedValue('another model is already downloading: small');
+      api.GetModelDownloadState
+        .mockResolvedValueOnce(IDLE_DOWNLOAD)
+        .mockResolvedValue(downloadState({ model: 'small', status: 'downloading', total: 1 }));
+    });
+    expect(await screen.findByText('another model is already downloading: small')).toBeInTheDocument();
     act(() => EventsEmit('modelDownloadState', downloadState({ model: 'tiny.en', status: 'completed', progress: 100 })));
     expect(api.SetModel).not.toHaveBeenCalled();
   });

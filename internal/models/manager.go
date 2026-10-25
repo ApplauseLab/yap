@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -30,7 +31,12 @@ func NewManager(modelsDir string) (*Manager, error) {
 	if err := os.MkdirAll(modelsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create models directory: %w", err)
 	}
-	return &Manager{modelsDir: modelsDir, baseURL: defaultBaseURL()}, nil
+	m := &Manager{modelsDir: modelsDir, baseURL: defaultBaseURL()}
+	// Partials left by a crash, kill, or shutdown timeout are never resumed.
+	for _, spec := range catalog {
+		m.removePartials(spec, stalePartialAge)
+	}
+	return m, nil
 }
 
 // SetBaseURL changes where model files are downloaded from.
@@ -92,6 +98,10 @@ func (m *Manager) DownloadModel(ctx context.Context, modelName string, progress 
 	mu := lock.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
+
+	// The lock rules out another transfer in this process. The age check
+	// spares a live download by another Yap sharing this directory.
+	m.removePartials(spec, stalePartialAge)
 
 	if m.IsModelDownloaded(modelName) {
 		if progress != nil {
@@ -196,7 +206,7 @@ func (m *Manager) DeleteModel(modelName string) error {
 		return err
 	}
 	path := filepath.Join(m.modelsDir, spec.Filename)
-	m.removePartials(spec)
+	m.removePartials(spec, 0)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -214,9 +224,14 @@ func (m *Manager) ListDownloadedModels() []string {
 	return names
 }
 
-// removePartials deletes leftover temporary files for spec, including the
-// fixed-name partials written by earlier versions.
-func (m *Manager) removePartials(spec ModelSpec) {
+// stalePartialAge is how long a partial must go unmodified before it is
+// treated as abandoned. Active downloads write to their file continuously.
+const stalePartialAge = 2 * time.Minute
+
+// removePartials deletes temporary files for spec, including the fixed-name
+// partials written by earlier versions, that were last modified at least
+// olderThan ago.
+func (m *Manager) removePartials(spec ModelSpec, olderThan time.Duration) {
 	entries, err := os.ReadDir(m.modelsDir)
 	if err != nil {
 		return
@@ -224,8 +239,15 @@ func (m *Manager) removePartials(spec ModelSpec) {
 	prefix := spec.Filename + "-"
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == spec.Filename+".tmp" || (strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".tmp")) {
-			_ = os.Remove(filepath.Join(m.modelsDir, name))
+		if name != spec.Filename+".tmp" && !(strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".tmp")) {
+			continue
 		}
+		if olderThan > 0 {
+			info, err := entry.Info()
+			if err != nil || time.Since(info.ModTime()) < olderThan {
+				continue
+			}
+		}
+		_ = os.Remove(filepath.Join(m.modelsDir, name))
 	}
 }

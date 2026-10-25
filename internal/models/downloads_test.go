@@ -288,3 +288,46 @@ func TestDownloaderShutdownCancelsAndWaits(t *testing.T) {
 		t.Fatalf("expected closed error, got %v", err)
 	}
 }
+
+func TestDownloaderEmitsInStateOrderWhenCancelRacesCompletion(t *testing.T) {
+	var d *Downloader
+	var mu sync.Mutex
+	var emitted []DownloadStatus
+	done := make(chan DownloadState, 1)
+	emit := func(s DownloadState) {
+		if s.Status == DownloadCancelling {
+			// Widen the window between changing state and delivering the event.
+			time.Sleep(50 * time.Millisecond)
+		}
+		mu.Lock()
+		emitted = append(emitted, s.Status)
+		mu.Unlock()
+	}
+	// The transfer finishes successfully the moment cancellation begins.
+	download := func(ctx context.Context, model string, progress DownloadProgress) error {
+		for d.State().Status != DownloadCancelling {
+			time.Sleep(time.Millisecond)
+		}
+		return nil
+	}
+	d = newDownloader(download, func(string) error { return nil }, emit, func(s DownloadState) { done <- s })
+	t.Cleanup(func() { d.Shutdown(time.Second) })
+
+	if err := d.Start("tiny"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Cancel("tiny"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not finish")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	last := emitted[len(emitted)-1]
+	if last != DownloadCompleted || last != d.State().Status {
+		t.Fatalf("last emitted status %s (all %v), state %s", last, emitted, d.State().Status)
+	}
+}

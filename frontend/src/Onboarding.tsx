@@ -5,6 +5,7 @@ import {
   GetModels,
   DownloadModel,
   CancelModelDownload,
+  GetModelDownloadState,
   SetModel,
   SetProvider,
   SetOpenAIKey,
@@ -19,7 +20,7 @@ import {
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
 import { useModelDownload } from './useModelDownload';
-import { ModelInfo, errorMessage, formatBytes, isDownloadActive } from './modelTypes';
+import { ModelDownloadState, ModelInfo, errorMessage, formatBytes, isDownloadActive } from './modelTypes';
 
 interface AppState {
   state: string;
@@ -104,12 +105,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     try {
       await DownloadModel(selectedModel);
     } catch (err) {
-      // Already downloading this exact model (e.g. after a remount): keep waiting.
-      if (isDownloadActive(downloadState) && downloadState.model === selectedModel) return;
+      // Already downloading this exact model (e.g. after a remount): keep
+      // waiting. Ask the backend, since the rendered state may lag behind.
+      const current = await GetModelDownloadState().catch(() => null) as ModelDownloadState | null;
+      if (current && isDownloadActive(current) && current.model === selectedModel) return;
       awaitingModelRef.current = null;
       setDownloadStartError(errorMessage(err));
     }
-  }, [selectedModel, downloadState]);
+  }, [selectedModel]);
 
   const handleCancelDownload = useCallback(async () => {
     awaitingModelRef.current = null;

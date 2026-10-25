@@ -61,6 +61,11 @@ type Downloader struct {
 	// states are always emitted.
 	ProgressInterval time.Duration
 
+	// emitMu serializes "change state, then emit" so events reach the
+	// frontend in the order the state changed. Lock order: emitMu, then mu.
+	// emit must never call back into the Downloader.
+	emitMu sync.Mutex
+
 	mu       sync.Mutex
 	state    DownloadState
 	cancel   context.CancelFunc
@@ -106,6 +111,9 @@ func (d *Downloader) Start(model string) error {
 		return err
 	}
 
+	d.emitMu.Lock()
+	defer d.emitMu.Unlock()
+
 	d.mu.Lock()
 	if d.closed {
 		d.mu.Unlock()
@@ -136,6 +144,8 @@ func (d *Downloader) run(ctx context.Context, cancel context.CancelFunc, done ch
 	defer cancel()
 
 	err := d.download(ctx, model, func(downloaded, total int64) {
+		d.emitMu.Lock()
+		defer d.emitMu.Unlock()
 		d.mu.Lock()
 		if d.state.Model != model || !d.state.Active() {
 			d.mu.Unlock()
@@ -159,6 +169,7 @@ func (d *Downloader) run(ctx context.Context, cancel context.CancelFunc, done ch
 		}
 	})
 
+	d.emitMu.Lock()
 	d.mu.Lock()
 	switch {
 	case err == nil:
@@ -180,19 +191,25 @@ func (d *Downloader) run(ctx context.Context, cancel context.CancelFunc, done ch
 
 	if !closed {
 		d.emit(final)
+	}
+	d.emitMu.Unlock()
+	if !closed {
 		d.onDone(final)
 	}
 }
 
 // Cancel stops the active download if it is downloading model.
 func (d *Downloader) Cancel(model string) error {
+	d.emitMu.Lock()
 	d.mu.Lock()
 	if !d.state.Active() || d.state.Model != model {
 		d.mu.Unlock()
+		d.emitMu.Unlock()
 		return fmt.Errorf("%w: %s", ErrNoMatchingDownload, model)
 	}
 	if d.state.Status == DownloadCancelling {
 		d.mu.Unlock()
+		d.emitMu.Unlock()
 		return nil
 	}
 	d.state.Status = DownloadCancelling
@@ -201,6 +218,7 @@ func (d *Downloader) Cancel(model string) error {
 	d.mu.Unlock()
 
 	d.emit(snapshot)
+	d.emitMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}

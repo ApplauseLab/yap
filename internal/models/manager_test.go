@@ -402,3 +402,52 @@ func TestDifferentModelsDownloadIndependentlyAndFailureCanRetry(t *testing.T) {
 		}
 	}
 }
+
+func TestStalePartialsAreRemoved(t *testing.T) {
+	body := payload(32)
+	spec := withSmallCatalogEntry(t, "tiny", int64(len(body)))
+	dir := t.TempDir()
+	stale := []string{spec.Filename + "-123.tmp", spec.Filename + ".tmp", "ggml-base.en.bin-9.tmp"}
+	old := time.Now().Add(-time.Hour)
+	writeStale := func(name string) {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, payload(8), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range stale {
+		writeStale(name)
+	}
+	unrelated := filepath.Join(dir, "notes.tmp")
+	os.WriteFile(unrelated, payload(1), 0644)
+	// A fresh partial may belong to a live download in another Yap instance.
+	live := filepath.Join(dir, "ggml-small.bin-77.tmp")
+	os.WriteFile(live, payload(1), 0644)
+
+	m, err := NewManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range stale {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s survived startup sweep", name)
+		}
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Fatal("unrelated files must be kept")
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatal("recently written partials must be kept")
+	}
+
+	// A stale partial appearing after startup is removed before the next transfer.
+	writeStale(spec.Filename + "-456.tmp")
+	m.SetBaseURL(serveBytes(t, spec.Filename, body).URL)
+	if err := m.DownloadModel(context.Background(), "tiny", nil); err != nil {
+		t.Fatal(err)
+	}
+	assertNoTemp(t, m, spec)
+}
