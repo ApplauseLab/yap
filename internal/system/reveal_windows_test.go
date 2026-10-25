@@ -29,7 +29,9 @@ $deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
   foreach ($window in $shell.Windows()) {
     try {
-      foreach ($item in $window.Document.SelectedItems()) {
+      $items = $window.Document.SelectedItems()
+      for ($i = 0; $i -lt $items.Count; $i++) {
+        $item = $items.Item($i)
         if ($item.Path -eq $env:YAP_REVEAL_TEST_PATH) {
           Write-Output "Explorer selected the requested recording"
           $window.Quit()
@@ -41,7 +43,15 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 200
 }
 Get-Process explorer -ErrorAction SilentlyContinue | Format-List Id,SessionId,MainWindowTitle
-foreach ($window in $shell.Windows()) { Write-Output ("Shell window: " + $window.LocationURL) }
+Write-Output ("Expected: " + $env:YAP_REVEAL_TEST_PATH)
+foreach ($window in $shell.Windows()) {
+  Write-Output ("Shell window: " + $window.LocationURL)
+  try {
+    $items = $window.Document.SelectedItems()
+    Write-Output ("Selected count: " + $items.Count)
+    for ($i = 0; $i -lt $items.Count; $i++) { Write-Output ("Selected: " + $items.Item($i).Path) }
+  } catch { Write-Output $_ }
+}
 throw "Explorer did not select the requested recording"
 `)
 	cmd.Env = append(os.Environ(), "YAP_REVEAL_TEST_PATH="+path)
