@@ -20,7 +20,7 @@ import {
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
 import { useModelDownload } from './useModelDownload';
-import { ModelDownloadState, ModelInfo, errorMessage, formatBytes, isDownloadActive } from './modelTypes';
+import { ModelDownloadState, ModelInfo, errorMessage, formatBytes, fullModelName, isDownloadActive } from './modelTypes';
 
 interface AppState {
   state: string;
@@ -398,7 +398,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <div className="model-info">
                 <div className="model-header">
                   <div className="model-name">
-                    {model.displayName}
+                    {fullModelName(model)}
                     {model.name === 'base.en' && <span className="recommended-badge">Recommended</span>}
                   </div>
                   <span className="model-size">{model.size}</span>
@@ -487,7 +487,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             </>
           ) : downloadProgress ? (
             <>
-              <h2 className="download-title">Downloading {model?.displayName}</h2>
+              <h2 className="download-title">Downloading {model ? fullModelName(model) : selectedModel}</h2>
               <p className="download-subtitle">A local model is required before Yap can transcribe offline. {formatBytes(downloadProgress.downloaded)} of {formatBytes(downloadProgress.total || model?.sizeBytes || 0)} - {progress.toFixed(0)}%</p>
             </>
           ) : (

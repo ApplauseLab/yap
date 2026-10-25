@@ -52,8 +52,10 @@ describe('App model integration', () => {
   it('adds a Models page to the sidebar and keeps a single download listener', async () => {
     setup();
     fireEvent.click(await screen.findByRole('button', { name: /^Models/ }));
-    expect(document.querySelector('.page-title')).toHaveTextContent('Models');
-    expect(await screen.findByTestId('model-card-large-v3')).toBeInTheDocument();
+    expect(document.querySelector('.page-title')).toHaveTextContent('Models library');
+    expect(await screen.findByTestId('model-row-large-v3')).toBeInTheDocument();
+    // The toolbar is rendered into the page header.
+    expect(within(document.querySelector('.main-header') as HTMLElement).getByRole('button', { name: 'Filter models' })).toBeInTheDocument();
     expect(listenerCount('modelDownloadState')).toBe(1);
     expect(listenerCount('stateChanged')).toBe(1);
     expect(listenerCount('downloadComplete')).toBe(0);
@@ -62,11 +64,11 @@ describe('App model integration', () => {
   it('Settings summarises the active model and links into the library', async () => {
     setup();
     fireEvent.click(await screen.findByRole('button', { name: /^Settings/ }));
-    const row = (await screen.findByText('Base (English)')).closest('.setting-row') as HTMLElement;
+    const row = (await screen.findByText('Whisper Base (English)')).closest('.setting-row') as HTMLElement;
     expect(row).toHaveTextContent('148 MB · English only · Downloaded');
     expect(screen.queryByRole('combobox', { name: /model/i })).toBeNull();
     fireEvent.click(within(row).getByRole('button', { name: 'Browse Models' }));
-    expect(await screen.findByTestId('model-card-base.en')).toHaveClass('focused');
+    expect(await screen.findByRole('dialog', { name: 'Whisper Base (English) details' })).toBeInTheDocument();
   });
 
   it('Settings hides local model controls when OpenAI is active', async () => {
@@ -78,12 +80,12 @@ describe('App model integration', () => {
 
   it('Home routes a missing model to the library or downloads that exact model', async () => {
     setup({ state: appState({ currentModel: 'small', modelReady: false }) });
-    const prompt = (await screen.findByText('Model "Small" needs to be downloaded')).closest('.download-prompt') as HTMLElement;
+    const prompt = (await screen.findByText('Model "Whisper Small" needs to be downloaded')).closest('.download-prompt') as HTMLElement;
     fireEvent.click(within(prompt).getByRole('button', { name: 'Download (488 MB)' }));
     await waitFor(() => expect(api.DownloadModel).toHaveBeenCalledWith('small'));
 
     fireEvent.click(within(prompt).getByRole('button', { name: 'Browse models' }));
-    expect(await screen.findByTestId('model-card-small')).toHaveClass('focused');
+    expect(await screen.findByRole('dialog', { name: 'Whisper Small details' })).toBeInTheDocument();
   });
 
   it('Home shows download start errors inline', async () => {
@@ -95,7 +97,7 @@ describe('App model integration', () => {
 
   it('Home progress is labelled by the downloading model, not the active one', async () => {
     setup({ download: downloadState({ model: 'large-v3', status: 'downloading', downloaded: 1e9, total: 3095033483, progress: 32.3 }) });
-    expect(await screen.findByText('Downloading Large V3')).toBeInTheDocument();
+    expect(await screen.findByText('Downloading Whisper Large v3')).toBeInTheDocument();
     expect(screen.getByText('1.00 GB of 3.10 GB')).toBeInTheDocument();
     expect(nav('Models')).toHaveTextContent('32%');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -115,7 +117,8 @@ describe('App model integration', () => {
   it('activates a downloaded model from the library with one action', async () => {
     setup();
     fireEvent.click(await screen.findByRole('button', { name: /^Models/ }));
-    fireEvent.click(within(await screen.findByTestId('model-card-base')).getByRole('button', { name: 'Use this model' }));
+    fireEvent.click(await screen.findByTestId('model-row-base'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Use this model' }));
     await waitFor(() => expect(api.SetModel).toHaveBeenCalledWith('base'));
   });
 
@@ -123,9 +126,19 @@ describe('App model integration', () => {
     setup();
     api.DeleteModel.mockRejectedValue('the active model cannot be deleted');
     fireEvent.click(await screen.findByRole('button', { name: /^Models/ }));
-    const card = within(await screen.findByTestId('model-card-base'));
-    fireEvent.click(card.getByRole('button', { name: 'Delete' }));
-    fireEvent.click(card.getByRole('button', { name: 'Confirm delete' }));
-    expect(await card.findByRole('alert')).toHaveTextContent('the active model cannot be deleted');
+    fireEvent.click(await screen.findByTestId('model-row-base'));
+    const panel = within(screen.getByRole('dialog'));
+    fireEvent.click(panel.getByRole('button', { name: 'Delete from this computer' }));
+    fireEvent.click(panel.getByRole('button', { name: 'Confirm delete' }));
+    expect(await panel.findByRole('alert')).toHaveTextContent('the active model cannot be deleted');
+  });
+
+  it('persists favorites through the backend and refreshes models', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: /^Models/ }));
+    const before = api.GetModels.mock.calls.length;
+    fireEvent.click(within(await screen.findByTestId('model-row-small')).getByRole('button', { name: 'Add Whisper Small to favorites' }));
+    await waitFor(() => expect(api.SetModelFavorite).toHaveBeenCalledWith('small', true));
+    await waitFor(() => expect(api.GetModels.mock.calls.length).toBeGreaterThan(before));
   });
 });

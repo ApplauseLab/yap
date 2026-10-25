@@ -25,7 +25,7 @@ async function startTinyDownload(prepare?: () => void) {
   render(<Onboarding onComplete={() => {}} />);
   fireEvent.click(screen.getByRole('button', { name: 'Get Started' }));
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-  fireEvent.click(await screen.findByText('Tiny (English)'));
+  fireEvent.click(await screen.findByText('Whisper Tiny (English)'));
   fireEvent.click(screen.getByRole('button', { name: 'Download & Continue' }));
   await waitFor(() => expect(api.DownloadModel).toHaveBeenCalledWith('tiny.en'));
 }
@@ -44,7 +44,7 @@ describe('Onboarding model download', () => {
     expect(listenerCount('modelDownloadState')).toBe(1);
 
     act(() => EventsEmit('modelDownloadState', downloadState({ model: 'tiny.en', status: 'downloading', downloaded: 38852357, total: 77704715, progress: 50 })));
-    expect(screen.getByText('Downloading Tiny (English)')).toBeInTheDocument();
+    expect(screen.getByText('Downloading Whisper Tiny (English)')).toBeInTheDocument();
     expect(screen.getByText(/38\.9 MB of 77\.7 MB - 50%/)).toBeInTheDocument();
 
     // A different model completing must not advance or activate anything.

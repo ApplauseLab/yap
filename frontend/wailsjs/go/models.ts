@@ -74,6 +74,7 @@ export namespace main {
 	    accuracy: number;
 	    useCase: string;
 	    recommendation: string;
+	    favorite: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelInfo(source);
@@ -92,6 +93,7 @@ export namespace main {
 	        this.accuracy = source["accuracy"];
 	        this.useCase = source["useCase"];
 	        this.recommendation = source["recommendation"];
+	        this.favorite = source["favorite"];
 	    }
 	}
 	export class UsageStats {
@@ -132,6 +134,7 @@ export namespace models {
 	    cancelHotkey: string;
 	    soundEnabled?: boolean;
 	    onboardingCompleted: boolean;
+	    favoriteModels?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -149,6 +152,7 @@ export namespace models {
 	        this.cancelHotkey = source["cancelHotkey"];
 	        this.soundEnabled = source["soundEnabled"];
 	        this.onboardingCompleted = source["onboardingCompleted"];
+	        this.favoriteModels = source["favoriteModels"];
 	    }
 	}
 	export class DownloadState {

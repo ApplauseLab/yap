@@ -72,6 +72,7 @@ type ModelInfo struct {
 	Accuracy       int    `json:"accuracy"`
 	UseCase        string `json:"useCase"`
 	Recommendation string `json:"recommendation"`
+	Favorite       bool   `json:"favorite"`
 }
 
 // UsageStats for frontend
@@ -873,6 +874,7 @@ func (a *App) GetModels() []ModelInfo {
 			Accuracy:       spec.Accuracy,
 			UseCase:        spec.UseCase,
 			Recommendation: spec.Recommendation,
+			Favorite:       a.configManager != nil && a.configManager.IsFavoriteModel(spec.Name),
 		}
 	}
 	return result
@@ -1162,6 +1164,17 @@ func (a *App) DownloadModel(model string) error {
 	}
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Model download started: model=%s", model))
 	return nil
+}
+
+// SetModelFavorite stars or unstars a catalog model in the library.
+func (a *App) SetModelFavorite(model string, favorite bool) error {
+	if _, err := models.RequireModel(model); err != nil {
+		return err
+	}
+	if a.WaitForStartup() != nil || a.configManager == nil {
+		return fmt.Errorf("configuration is not ready")
+	}
+	return a.configManager.SetModelFavorite(model, favorite)
 }
 
 // GetModelDownloadState returns the current or most recent download state.

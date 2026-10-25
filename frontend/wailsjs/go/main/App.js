@@ -150,6 +150,10 @@ export function SetModel(arg1) {
   return window['go']['main']['App']['SetModel'](arg1);
 }
 
+export function SetModelFavorite(arg1, arg2) {
+  return window['go']['main']['App']['SetModelFavorite'](arg1, arg2);
+}
+
 export function SetOnboardingCompleted(arg1) {
   return window['go']['main']['App']['SetOnboardingCompleted'](arg1);
 }
@@ -193,6 +197,7 @@ export function StopRecording() {
 export function ToggleRecording() {
   return window['go']['main']['App']['ToggleRecording']();
 }
+
 export function WaitForStartup() {
   return window['go']['main']['App']['WaitForStartup']();
 }

@@ -42,6 +42,9 @@ type Config struct {
 
 	// OnboardingCompleted indicates whether the user has completed the onboarding flow
 	OnboardingCompleted bool `json:"onboardingCompleted"`
+
+	// FavoriteModels lists catalog model names the user starred in the library
+	FavoriteModels []string `json:"favoriteModels,omitempty"`
 }
 
 // DefaultConfig returns the default configuration
@@ -207,5 +210,30 @@ func (cm *ConfigManager) IsOnboardingCompleted() bool {
 // SetOnboardingCompleted marks onboarding as completed
 func (cm *ConfigManager) SetOnboardingCompleted(completed bool) error {
 	cm.config.OnboardingCompleted = completed
+	return cm.Save()
+}
+
+// IsFavoriteModel reports whether the user starred model
+func (cm *ConfigManager) IsFavoriteModel(model string) bool {
+	for _, name := range cm.config.FavoriteModels {
+		if name == model {
+			return true
+		}
+	}
+	return false
+}
+
+// SetModelFavorite stars or unstars model
+func (cm *ConfigManager) SetModelFavorite(model string, favorite bool) error {
+	kept := make([]string, 0, len(cm.config.FavoriteModels)+1)
+	for _, name := range cm.config.FavoriteModels {
+		if name != model {
+			kept = append(kept, name)
+		}
+	}
+	if favorite {
+		kept = append(kept, model)
+	}
+	cm.config.FavoriteModels = kept
 	return cm.Save()
 }

@@ -4,7 +4,7 @@ import { RecordingOverlay } from './RecordingOverlay';
 import { Onboarding } from './Onboarding';
 import { ModelsLibrary } from './ModelsLibrary';
 import { useModelDownload } from './useModelDownload';
-import { ModelInfo, errorMessage, formatBytes, isDownloadActive, isTerminal } from './modelTypes';
+import { ModelInfo, errorMessage, formatBytes, fullModelName, isDownloadActive, isTerminal } from './modelTypes';
 import packageJson from '../package.json';
 // Sound playback is now handled natively in Go (internal/sounds)
 import {
@@ -18,6 +18,7 @@ import {
   DownloadModel,
   CancelModelDownload,
   DeleteModel,
+  SetModelFavorite,
   GetConfig,
   SetAutoPaste,
   SetSoundEnabled,
@@ -112,6 +113,7 @@ function App() {
   const [apiKey, setApiKey] = useState('');
   const downloadState = useModelDownload();
   const [focusModel, setFocusModel] = useState<string | null>(null);
+  const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(null);
   const [homeDownloadError, setHomeDownloadError] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
@@ -446,6 +448,11 @@ function App() {
       refreshAppState();
     }
   }, [refreshModels, refreshAppState]);
+
+  const handleToggleFavorite = useCallback(async (model: string, favorite: boolean) => {
+    await SetModelFavorite(model, favorite);
+    refreshModels();
+  }, [refreshModels]);
 
   const openModelsLibrary = useCallback((focus?: string) => {
     setFocusModel(focus ?? null);
@@ -825,8 +832,15 @@ function App() {
         {/* Draggable header area */}
         <div className="main-header" style={{ '--wails-draggable': 'drag' } as React.CSSProperties}>
           <span className="page-title">
-            {currentPage === 'home' ? 'Home' : currentPage === 'models' ? 'Models' : currentPage === 'settings' ? 'Settings' : 'History'}
+            {currentPage === 'home' ? 'Home' : currentPage === 'models' ? 'Models library' : currentPage === 'settings' ? 'Settings' : 'History'}
           </span>
+          {currentPage === 'models' && (
+            <div
+              className="header-actions"
+              ref={setHeaderActions}
+              style={{ '--wails-draggable': 'no-drag' } as React.CSSProperties}
+            />
+          )}
         </div>
 
         {currentPage === 'home' && (
@@ -856,10 +870,10 @@ function App() {
               <div className="download-prompt home-download">
                 <p>
                   {currentModelFailed
-                    ? `Downloading "${currentModel?.displayName}" failed.`
+                    ? `Downloading "${currentModel ? fullModelName(currentModel) : appState.currentModel}" failed.`
                     : currentModelCancelled
-                      ? `Download of "${currentModel?.displayName}" was cancelled.`
-                      : `Model "${currentModel?.displayName}" needs to be downloaded`}
+                      ? `Download of "${currentModel ? fullModelName(currentModel) : appState.currentModel}" was cancelled.`
+                      : `Model "${currentModel ? fullModelName(currentModel) : appState.currentModel}" needs to be downloaded`}
                 </p>
                 {currentModelFailed && <p className="download-prompt-error">{downloadState.error}</p>}
                 {homeDownloadError && <p className="download-prompt-error">{homeDownloadError}</p>}
@@ -888,7 +902,7 @@ function App() {
                   </svg>
                 </div>
                 <p>
-                  {downloadState.status === 'cancelling' ? 'Cancelling' : 'Downloading'} {downloadingModel?.displayName || downloadState.model}
+                  {downloadState.status === 'cancelling' ? 'Cancelling' : 'Downloading'} {downloadingModel ? fullModelName(downloadingModel) : downloadState.model}
                 </p>
                 <div className="download-subtitle">
                   {formatBytes(downloadState.downloaded)} of {formatBytes(downloadState.total || downloadingModel?.sizeBytes || 0)}
@@ -1026,10 +1040,12 @@ function App() {
             provider={appState.currentProvider}
             downloadState={downloadState}
             focusModel={focusModel}
+            toolbarTarget={headerActions}
             onDownload={handleDownloadModel}
             onCancel={handleCancelDownload}
             onUse={handleUseModel}
             onDelete={handleDeleteModel}
+            onToggleFavorite={handleToggleFavorite}
           />
         )}
 
@@ -1068,7 +1084,7 @@ function App() {
                   </div>
                   <div className="model-summary">
                     <div className="model-summary-text">
-                      <strong>{currentModel?.displayName || appState.currentModel}</strong>
+                      <strong>{currentModel ? fullModelName(currentModel) : appState.currentModel}</strong>
                       {currentModel
                         ? `${currentModel.size} · ${currentModel.englishOnly ? 'English only' : 'Multilingual'} · ${
                             downloadActive && downloadState.model === currentModel.name

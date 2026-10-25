@@ -10,6 +10,7 @@ export interface ModelInfo {
   accuracy: number;
   useCase: string;
   recommendation: string;
+  favorite: boolean;
 }
 
 export type ModelDownloadStatus =
@@ -51,6 +52,16 @@ export function formatBytes(bytes: number): string {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(bytes >= 1e8 ? 0 : 1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+}
+
+// Library rows show the shared display name with an EN badge; elsewhere the
+// language must be part of the name to tell variants apart.
+export function fullModelName(model: Pick<ModelInfo, 'displayName' | 'englishOnly'>): string {
+  return model.englishOnly ? `${model.displayName} (English)` : model.displayName;
+}
+
+export function providerLabel(provider: string): string {
+  return provider === 'local' ? 'OpenAI Whisper' : provider;
 }
 
 export function languageLabel(model: Pick<ModelInfo, 'englishOnly'>): string {

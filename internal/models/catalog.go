@@ -20,6 +20,8 @@ const (
 
 // ModelSpec is the canonical description of a supported transcription model.
 // Speed and Accuracy are curated relative ratings from 1 (lowest) to 5.
+// DisplayName is shared by a model's English-only and multilingual variants;
+// EnglishOnly distinguishes them.
 type ModelSpec struct {
 	Name           string `json:"name"`
 	DisplayName    string `json:"displayName"`
@@ -36,59 +38,59 @@ type ModelSpec struct {
 
 var catalog = []ModelSpec{
 	{
-		Name: "tiny.en", DisplayName: "Tiny (English)", Filename: "ggml-tiny.en.bin",
+		Name: "tiny.en", DisplayName: "Whisper Tiny", Filename: "ggml-tiny.en.bin",
 		SizeBytes: 77704715, Size: "78 MB", EnglishOnly: true, Provider: ProviderLocal,
 		Speed: 5, Accuracy: 1,
 		UseCase:        "Quick notes on older or low-power machines where speed matters most.",
 		Recommendation: "Best for speed",
 	},
 	{
-		Name: "tiny", DisplayName: "Tiny", Filename: "ggml-tiny.bin",
+		Name: "tiny", DisplayName: "Whisper Tiny", Filename: "ggml-tiny.bin",
 		SizeBytes: 77691713, Size: "78 MB", EnglishOnly: false, Provider: ProviderLocal,
 		Speed: 5, Accuracy: 1,
 		UseCase: "Fast rough drafts in any language on low-power machines.",
 	},
 	{
-		Name: "base.en", DisplayName: "Base (English)", Filename: "ggml-base.en.bin",
+		Name: "base.en", DisplayName: "Whisper Base", Filename: "ggml-base.en.bin",
 		SizeBytes: 147964211, Size: "148 MB", EnglishOnly: true, Provider: ProviderLocal,
 		Speed: 4, Accuracy: 2,
 		UseCase:        "Everyday English dictation with a good balance of speed and accuracy.",
 		Recommendation: "Recommended",
 	},
 	{
-		Name: "base", DisplayName: "Base", Filename: "ggml-base.bin",
+		Name: "base", DisplayName: "Whisper Base", Filename: "ggml-base.bin",
 		SizeBytes: 147951465, Size: "148 MB", EnglishOnly: false, Provider: ProviderLocal,
 		Speed: 4, Accuracy: 2,
 		UseCase: "Everyday dictation in many languages with modest hardware needs.",
 	},
 	{
-		Name: "small.en", DisplayName: "Small (English)", Filename: "ggml-small.en.bin",
+		Name: "small.en", DisplayName: "Whisper Small", Filename: "ggml-small.en.bin",
 		SizeBytes: 487614201, Size: "488 MB", EnglishOnly: true, Provider: ProviderLocal,
 		Speed: 3, Accuracy: 3,
 		UseCase:        "Longer English dictation where accuracy matters more than speed.",
 		Recommendation: "Better accuracy",
 	},
 	{
-		Name: "small", DisplayName: "Small", Filename: "ggml-small.bin",
+		Name: "small", DisplayName: "Whisper Small", Filename: "ggml-small.bin",
 		SizeBytes: 487601967, Size: "488 MB", EnglishOnly: false, Provider: ProviderLocal,
 		Speed: 3, Accuracy: 3,
 		UseCase:        "The best everyday balance for languages other than English.",
 		Recommendation: "Recommended multilingual",
 	},
 	{
-		Name: "medium.en", DisplayName: "Medium (English)", Filename: "ggml-medium.en.bin",
+		Name: "medium.en", DisplayName: "Whisper Medium", Filename: "ggml-medium.en.bin",
 		SizeBytes: 1533774781, Size: "1.5 GB", EnglishOnly: true, Provider: ProviderLocal,
 		Speed: 2, Accuracy: 4,
 		UseCase: "High-accuracy English on fast machines with plenty of memory.",
 	},
 	{
-		Name: "medium", DisplayName: "Medium", Filename: "ggml-medium.bin",
+		Name: "medium", DisplayName: "Whisper Medium", Filename: "ggml-medium.bin",
 		SizeBytes: 1533763059, Size: "1.5 GB", EnglishOnly: false, Provider: ProviderLocal,
 		Speed: 2, Accuracy: 4,
 		UseCase: "High-accuracy multilingual transcription on fast machines.",
 	},
 	{
-		Name: "large-v3", DisplayName: "Large V3", Filename: "ggml-large-v3.bin",
+		Name: "large-v3", DisplayName: "Whisper Large v3", Filename: "ggml-large-v3.bin",
 		SizeBytes: 3095033483, Size: "3.1 GB", EnglishOnly: false, Provider: ProviderLocal,
 		Speed: 1, Accuracy: 5,
 		UseCase:        "Maximum accuracy in any language; slow and memory hungry.",

@@ -77,6 +77,8 @@ export function SetCancelHotkey(arg1:string):Promise<void>;
 
 export function SetModel(arg1:string):Promise<void>;
 
+export function SetModelFavorite(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetOnboardingCompleted(arg1:boolean):Promise<void>;
 
 export function SetOpenAIKey(arg1:string):Promise<void>;
@@ -98,4 +100,5 @@ export function StartRecording():Promise<void>;
 export function StopRecording():Promise<void>;
 
 export function ToggleRecording():Promise<void>;
-export function WaitForStartup(): Promise<void>;
+
+export function WaitForStartup():Promise<void>;
