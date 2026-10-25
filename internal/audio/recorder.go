@@ -29,6 +29,7 @@ type recordingStream interface {
 	Start() error
 	Stop() error
 	Close() error
+	AvailableToRead() (int, error)
 	Read() error
 }
 
@@ -244,6 +245,8 @@ func (r *Recorder) levelLoop(stop <-chan struct{}, levels <-chan float32) {
 // readLoop continuously reads audio data from the stream
 func (r *Recorder) readLoop(inputBuffer []float32) {
 	defer close(r.readDone)
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
 	for {
 		r.mu.Lock()
 		if !r.isRecording {
@@ -254,8 +257,19 @@ func (r *Recorder) readLoop(inputBuffer []float32) {
 		levelChan := r.levelChan
 		r.mu.Unlock()
 
-		// Read from stream - this is the critical path, don't block it
-		err := stream.Read()
+		// CoreAudio's blocking Read may never return if Stop runs while it
+		// waits for samples. Only read complete frames already buffered, and
+		// periodically recheck isRecording even if the input stops producing.
+		available, err := stream.AvailableToRead()
+		if err != nil {
+			return
+		}
+		if available < len(inputBuffer)/Channels {
+			<-poll.C
+			continue
+		}
+		// There is one consumer, so these frames remain available for Read.
+		err = stream.Read()
 		if err != nil {
 			// Stream might be closed, exit loop
 			return
@@ -340,10 +354,11 @@ func (r *Recorder) Stop() ([]float32, error) {
 
 	// Stop and close PortAudio stream outside lock
 	if stream != nil {
-		stream.Stop()
-		// Stop interrupts blocking reads, but the Go reader can still be
-		// returning from Pa_ReadStream. Never free its native stream early.
+		// Let the reader exit while capture is still running. Stopping first
+		// can strand Pa_ReadStream on CoreAudio. Close must also wait for it
+		// to finish, since Windows can crash if the stream is freed mid-read.
 		<-r.readDone
+		stream.Stop()
 		stream.Close()
 	}
 
