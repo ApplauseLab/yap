@@ -40,6 +40,8 @@ while ((Get-Date) -lt $deadline) {
   }
   Start-Sleep -Milliseconds 200
 }
+Get-Process explorer -ErrorAction SilentlyContinue | Format-List Id,SessionId,MainWindowTitle
+foreach ($window in $shell.Windows()) { Write-Output ("Shell window: " + $window.LocationURL) }
 throw "Explorer did not select the requested recording"
 `)
 	cmd.Env = append(os.Environ(), "YAP_REVEAL_TEST_PATH="+path)

@@ -12,7 +12,6 @@ func TestRevealCommand(t *testing.T) {
 		path     string
 		want     []string
 	}{
-		{"windows", `C:\Users\Test User\Записи\recording.wav`, []string{"explorer.exe", "/select,", `C:\Users\Test User\Записи\recording.wav`}},
 		{"darwin", "/Users/Test User/recording.wav", []string{"open", "-R", "/Users/Test User/recording.wav"}},
 		{"linux", filepath.Join("recordings", "test.wav"), []string{"xdg-open", "recordings"}},
 	} {

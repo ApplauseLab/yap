@@ -17,12 +17,15 @@ func RevealFile(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("audio file unavailable: %w", err)
 	}
+	return revealFile(path)
+}
+
+func revealWithCommand(path string) error {
 	cmd, err := revealCommand(runtime.GOOS, path)
 	if err != nil {
 		return err
 	}
-	// Explorer may stay open or hand off to an existing shell process. Do not
-	// block the binding on its lifetime or treat its handoff exit code as failure.
+	// Do not block the binding on the file manager's lifetime.
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("open file manager: %w", err)
 	}
@@ -34,8 +37,6 @@ func revealCommand(platform, path string) (*exec.Cmd, error) {
 	switch platform {
 	case "darwin":
 		return exec.Command("open", "-R", path), nil
-	case "windows":
-		return exec.Command("explorer.exe", "/select,", path), nil
 	case "linux":
 		return exec.Command("xdg-open", filepath.Dir(path)), nil
 	default:
