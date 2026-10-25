@@ -3,6 +3,8 @@ package transcribe
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -137,5 +139,38 @@ printf 'cli transcript\n' > "$out.txt"
 		if lang != "en" && lang != "auto" {
 			t.Fatalf("unexpected language %q in %v", lang, got)
 		}
+	}
+}
+
+// Runs on every OS (including Windows CI, where the shell-script worker tests
+// are skipped): the inference request must carry the model's language.
+func TestWorkerRequestCarriesLanguage(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/inference" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got = append(got, r.FormValue("language"))
+		_, _ = w.Write([]byte(" transcript \n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	worker := &whisperWorker{client: srv.Client(), baseURL: srv.URL}
+	for _, model := range []Model{ModelBaseEn, ModelLargeV3} {
+		text, err := worker.transcribe(context.Background(), []byte("wav"), model.WhisperLanguage())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text != "transcript" {
+			t.Fatalf("transcript = %q", text)
+		}
+	}
+	if strings.Join(got, ",") != "en,auto" {
+		t.Fatalf("languages sent = %v, want [en auto]", got)
 	}
 }
