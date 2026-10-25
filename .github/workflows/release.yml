@@ -14,12 +14,14 @@ on:
 env:
   GO_VERSION: '1.23'
   NODE_VERSION: '20'
-  WAILS_VERSION: 'latest'
+  # The Wails CLI version is read from go.mod in each build job.
   WHISPER_CPP_VERSION: 'v1.9.5'
+  # microsoft/vcpkg release 2026.10.16
+  VCPKG_COMMIT: '9eec002df1cd109f8f104cd966a763daf9751489'
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -46,7 +48,7 @@ jobs:
 
   build-macos:
     needs: prepare
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,10 +68,18 @@ jobs:
 
       - name: Install macOS dependencies
         run: |
-          brew install portaudio whisper-cpp libomp create-dmg
+          brew install portaudio create-dmg
+
+      # Built from source at WHISPER_CPP_VERSION like Windows and Linux, so the bundle
+      # does not follow Homebrew's whisper.cpp/ggml/libomp versions.
+      - name: Build whisper.cpp CLI and server
+        run: scripts/ci/build-whisper-macos.sh "$WHISPER_CPP_VERSION" "$RUNNER_TEMP/whisper.cpp"
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: |
+          WAILS_VERSION="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
+          wails version | grep -F "${WAILS_VERSION}"
 
       - name: Install frontend dependencies
         run: npm install
@@ -79,84 +89,27 @@ jobs:
         run: |
           wails build -platform darwin/arm64 -o "Yap" -ldflags "-X main.appVersion=${{ needs.prepare.outputs.version }}"
 
-      - name: Bundle macOS runtime libraries
+      - name: Cache Whisper smoke-test model
+        uses: actions/cache@v4
+        with:
+          path: ~/yap-models/ggml-tiny.en.bin
+          key: whisper-model-ggml-tiny.en-c78c86eb
+
+      - name: Download Whisper smoke-test model
         run: |
-          set -euo pipefail
-          APP="build/bin/Yap.app"
-          mkdir -p "$APP/Contents/Frameworks" "$APP/Contents/Resources/bin" "$APP/Contents/Resources/lib" "$APP/Contents/Resources/libexec"
-
-          cp /opt/homebrew/lib/libportaudio.2.dylib "$APP/Contents/Frameworks/"
-          install_name_tool -change "/opt/homebrew/opt/portaudio/lib/libportaudio.2.dylib" \
-            "@executable_path/../Frameworks/libportaudio.2.dylib" \
-            "$APP/Contents/MacOS/Yap"
-
-          cp /opt/homebrew/bin/whisper-cli /opt/homebrew/bin/whisper-server "$APP/Contents/Resources/bin/"
-          chmod +x "$APP/Contents/Resources/bin/whisper-cli" "$APP/Contents/Resources/bin/whisper-server"
-
-          # Homebrew renamed whisper-cpp to whisper.cpp; resolve the prefix instead of hardcoding it.
-          WHISPER_PREFIX="$(brew --prefix whisper-cpp)"
-          cp -L "$WHISPER_PREFIX"/lib/libwhisper*.dylib "$APP/Contents/Resources/lib/"
-          cp -L /opt/homebrew/opt/ggml/lib/libggml*.dylib "$APP/Contents/Resources/lib/"
-          cp -L /opt/homebrew/opt/libomp/lib/libomp.dylib "$APP/Contents/Resources/lib/"
-          cp -L /opt/homebrew/opt/ggml/libexec/* "$APP/Contents/Resources/libexec/"
-          ls "$APP/Contents/Resources/libexec"/libggml-cpu-*.so >/dev/null
-
-          for lib in "$APP/Contents/Resources/lib"/*.dylib; do
-            install_name_tool -id "@executable_path/../lib/$(basename "$lib")" "$lib" || true
-          done
-
-          for bin in "$APP/Contents/Resources/bin"/* "$APP/Contents/Resources/lib"/*.dylib "$APP/Contents/Resources/libexec"/*; do
-            [ -f "$bin" ] || continue
-            otool -L "$bin" | awk '/\/opt\/homebrew\/(opt|Cellar)\/(whisper-cpp|whisper\.cpp|ggml|libomp)\// {print $1}' | while read -r dep; do
-              base="$(basename "$dep")"
-              install_name_tool -change "$dep" "@loader_path/../lib/$base" "$bin" || true
-            done
-            otool -L "$bin" | awk '/@rpath\/lib(whisper|ggml|omp)/ {print $1}' | while read -r dep; do
-              base="$(basename "$dep")"
-              install_name_tool -change "$dep" "@loader_path/../lib/$base" "$bin" || true
-            done
-          done
-
-          echo "Inspecting bundled whisper runtime dependencies"
-          for bin in "$APP/Contents/Resources/bin"/* "$APP/Contents/Resources/lib"/*.dylib "$APP/Contents/Resources/libexec"/*; do
-            [ -f "$bin" ] || continue
-            otool -L "$bin"
-            if otool -L "$bin" | grep -E '/opt/homebrew/|/usr/local/|/Users/runner/work/|@rpath/' >/dev/null; then
-              echo "Unresolved non-system dependency in $bin"
-              exit 1
-            fi
-          done
-
-          CPU_BRAND="$(sysctl -n machdep.cpu.brand_string || true)"
-          case "$CPU_BRAND" in
-            *M4*) CPU_BACKEND_NAME="libggml-cpu-apple_m4.so" ;;
-            *M2*|*M3*) CPU_BACKEND_NAME="libggml-cpu-apple_m2_m3.so" ;;
-            *) CPU_BACKEND_NAME="libggml-cpu-apple_m1.so" ;;
-          esac
-          CPU_BACKEND="$APP/Contents/Resources/libexec/$CPU_BACKEND_NAME"
-          if [ ! -f "$CPU_BACKEND" ]; then
-            CPU_BACKEND="$APP/Contents/Resources/libexec/libggml-cpu-apple_m1.so"
+          MODEL="$HOME/yap-models/ggml-tiny.en.bin"
+          if [ ! -f "$MODEL" ]; then
+            mkdir -p "$(dirname "$MODEL")"
+            curl -fsSL -o "$MODEL" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+          fi
+          if [ "$(shasum -a 1 "$MODEL" | awk '{print $1}')" != "c78c86eb1a8faa21b369bcd33207cc90d64ae9df" ]; then
+            rm -f "$MODEL"
+            echo "::error::ggml-tiny.en.bin checksum mismatch"
+            exit 1
           fi
 
-          echo "Smoke testing bundled whisper-cli"
-          "$APP/Contents/Resources/bin/whisper-cli" --help >/tmp/yap-whisper-help.txt
-          GGML_BACKEND_PATH="$CPU_BACKEND" "$APP/Contents/Resources/bin/whisper-cli" --help >/tmp/yap-whisper-help-with-backend.txt
-          GGML_BACKEND_PATH="$CPU_BACKEND" "$APP/Contents/Resources/bin/whisper-server" --help >/tmp/yap-whisper-server-help.txt
-
-          echo "Signing bundled macOS runtime files"
-          for bin in "$APP/Contents/Resources/bin"/* "$APP/Contents/Resources/lib"/*.dylib "$APP/Contents/Resources/libexec"/* "$APP/Contents/Frameworks"/*.dylib; do
-            [ -f "$bin" ] || continue
-            codesign --force --sign - "$bin"
-            codesign --verify --strict --verbose=2 "$bin"
-          done
-
-          codesign --force --sign - "$APP/Contents/MacOS/Yap"
-          codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/Yap"
-          codesign --force --deep --sign - "$APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          GGML_BACKEND_PATH="$CPU_BACKEND" "$APP/Contents/Resources/bin/whisper-cli" --help >/tmp/yap-whisper-help-after-sign.txt
-
-          echo "Bundled runtime dependency audit complete"
+      - name: Bundle macOS runtime libraries
+        run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp" "$HOME/yap-models/ggml-tiny.en.bin"
 
       - name: Create DMG
         run: |
@@ -177,6 +130,7 @@ jobs:
           trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
           test -d "$MOUNT_DIR/Yap.app"
           test -L "$MOUNT_DIR/Applications"
+          test -L "$MOUNT_DIR/Yap.app/Contents/Resources/bin/libggml-cpu-apple_m1.so"
           codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/Yap.app"
           hdiutil detach "$MOUNT_DIR"
           trap - EXIT
@@ -190,7 +144,7 @@ jobs:
 
   build-windows:
     needs: prepare
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -208,16 +162,24 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      # The runner image ships its own vcpkg at C:\vcpkg; use a separate checkout pinned to VCPKG_COMMIT.
       - name: Install native dependencies via vcpkg
         run: |
-          git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg install portaudio:x64-windows
+          $vcpkgRoot = "C:\vcpkg-pinned"
+          git init $vcpkgRoot
+          git -C $vcpkgRoot fetch --depth 1 https://github.com/microsoft/vcpkg.git $env:VCPKG_COMMIT
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          echo "CGO_CFLAGS=-IC:/vcpkg/installed/x64-windows/include" >> $env:GITHUB_ENV
-          echo "CGO_LDFLAGS=-LC:/vcpkg/installed/x64-windows/lib -lportaudio" >> $env:GITHUB_ENV
-          echo "PKG_CONFIG_PATH=C:/vcpkg/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
-          echo "C:/vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
+          git -C $vcpkgRoot checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:VCPKG_ROOT = $vcpkgRoot
+          & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$vcpkgRoot\vcpkg.exe" install portaudio:x64-windows --vcpkg-root $vcpkgRoot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          echo "CGO_CFLAGS=-IC:/vcpkg-pinned/installed/x64-windows/include" >> $env:GITHUB_ENV
+          echo "CGO_LDFLAGS=-LC:/vcpkg-pinned/installed/x64-windows/lib -lportaudio" >> $env:GITHUB_ENV
+          echo "PKG_CONFIG_PATH=C:/vcpkg-pinned/installed/x64-windows/lib/pkgconfig" >> $env:GITHUB_ENV
+          echo "C:/vcpkg-pinned/installed/x64-windows/bin" >> $env:GITHUB_PATH
 
       # The vcpkg whisper-cpp port does not build whisper-cli or whisper-server,
       # so build them from source as self-contained executables.
@@ -242,7 +204,13 @@ jobs:
           echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: |
+          $wailsVersion = go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go install "github.com/wailsapp/wails/v2/cmd/wails@$wailsVersion"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installed = wails version | Out-String
+          if ($installed -notmatch [regex]::Escape($wailsVersion)) { throw "wails CLI is not $wailsVersion" }
 
       - name: Install frontend dependencies
         run: npm install
@@ -252,7 +220,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "build\bin\bin"
           $ErrorActionPreference = "Stop"
-          Copy-Item "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
+          Copy-Item "C:\vcpkg-pinned\installed\x64-windows\bin\portaudio.dll" -Destination "build\bin\"
           Copy-Item "C:\whisper.cpp\build\bin\Release\whisper-cli.exe" -Destination "build\bin\bin\"
           Copy-Item "C:\whisper.cpp\build\bin\Release\whisper-server.exe" -Destination "build\bin\bin\"
           foreach ($exe in "whisper-cli.exe", "whisper-server.exe") {
@@ -481,7 +449,10 @@ jobs:
           cmake --build /tmp/whisper.cpp/build --config Release --target whisper-cli whisper-server -j2
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: |
+          WAILS_VERSION="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
+          wails version | grep -F "${WAILS_VERSION}"
 
       - name: Install frontend dependencies
         run: npm install
@@ -615,7 +586,10 @@ jobs:
           cmake --build /tmp/whisper.cpp/build --config Release --target whisper-cli whisper-server -j2
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+        run: |
+          WAILS_VERSION="$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+          go install "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}"
+          wails version | grep -F "${WAILS_VERSION}"
 
       - name: Install frontend dependencies
         run: npm install
@@ -722,7 +696,7 @@ jobs:
     needs: [prepare, build-macos, build-windows, build-linux-ubuntu22, build-linux-ubuntu24]
     # Manual runs without a version only build and upload workflow artifacts.
     if: needs.prepare.outputs.version != 'dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
