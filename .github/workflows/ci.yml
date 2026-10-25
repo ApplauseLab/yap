@@ -49,7 +49,7 @@ jobs:
   # The full module needs CGO (PortAudio, hotkeys), but the Windows-specific
   # transcription runtime code (process lifetime, console, reaper) does not.
   test-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     env:
       CGO_ENABLED: '0'
     steps:
