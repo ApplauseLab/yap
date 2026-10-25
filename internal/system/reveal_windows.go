@@ -2,6 +2,7 @@ package system
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -13,6 +14,7 @@ var (
 	revealShell              = windows.NewLazySystemDLL("shell32.dll")
 	parseDisplayName         = revealShell.NewProc("SHParseDisplayName")
 	openFolderAndSelectItems = revealShell.NewProc("SHOpenFolderAndSelectItems")
+	findLastID               = revealShell.NewProc("ILFindLastID")
 )
 
 func revealFile(path string) error {
@@ -40,8 +42,20 @@ func revealFile(path string) error {
 		return fmt.Errorf("locate recording in Explorer: HRESULT 0x%08x", uint32(hr))
 	}
 	defer windows.CoTaskMemFree(pidl)
-	// With cidl=0 the absolute PIDL identifies the item to select.
-	hr, _, _ = openFolderAndSelectItems.Call(uintptr(pidl), 0, 0, 0)
+	// Pass the parent and an explicit child item, so selection also works on
+	// Explorer versions that only navigate when given a zero-length item list.
+	parentName, err := windows.UTF16PtrFromString(filepath.Dir(windows.UTF16ToString(buffer)))
+	if err != nil {
+		return err
+	}
+	var parent unsafe.Pointer
+	hr, _, _ = parseDisplayName.Call(uintptr(unsafe.Pointer(parentName)), 0, uintptr(unsafe.Pointer(&parent)), 0, 0)
+	if int32(hr) < 0 {
+		return fmt.Errorf("locate Explorer parent folder: HRESULT 0x%08x", uint32(hr))
+	}
+	defer windows.CoTaskMemFree(parent)
+	child, _, _ := findLastID.Call(uintptr(pidl))
+	hr, _, _ = openFolderAndSelectItems.Call(uintptr(parent), 1, uintptr(unsafe.Pointer(&child)), 0)
 	if int32(hr) < 0 {
 		return fmt.Errorf("show recording in Explorer: HRESULT 0x%08x", uint32(hr))
 	}
