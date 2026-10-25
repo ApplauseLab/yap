@@ -2,6 +2,7 @@ package crashlog
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -37,13 +38,13 @@ func runCrashChild(mode string) {
 
 	switch mode {
 	case "goroutine-panic":
-		done := make(chan struct{})
 		Go("test-worker", func() {
-			defer close(done)
 			var items []string
 			_ = items[3]
 		})
-		<-done
+		// Do not let TestMain exit while the worker is still logging its panic.
+		time.Sleep(10 * time.Second)
+		os.Exit(99)
 	case "recovered-panic":
 		done := make(chan struct{})
 		go func() {
@@ -73,11 +74,14 @@ type childResult struct {
 func runChild(t *testing.T, mode string) childResult {
 	t.Helper()
 	home := t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^$")
 	cmd.Env = append(os.Environ(),
 		childModeEnv+"="+mode,
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"APPDATA="+filepath.Join(home, ".config"),
 	)
 	// Stderr is a pipe here, as it is /dev/null for an app opened from
 	// Finder, so RedirectStderr takes effect.
