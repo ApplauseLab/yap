@@ -23,17 +23,20 @@ function appState(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function setup({ state = appState(), models = MODELS, download = IDLE_DOWNLOAD } = {}) {
+function setup({
+  state = appState(), models = MODELS, download = IDLE_DOWNLOAD,
+  platform = 'linux' as string | Promise<string>, hotkeys = ['rightalt', 'escape'],
+} = {}) {
   api.IsOnboardingCompleted.mockResolvedValue(true);
-  api.GetPlatform.mockResolvedValue('linux');
+  api.GetPlatform.mockImplementation(() => Promise.resolve(platform));
   api.GetState.mockResolvedValue(state);
   api.GetModels.mockResolvedValue(models);
   api.GetConfig.mockResolvedValue({ provider: state.currentProvider, model: state.currentModel, autoPaste: true });
   api.GetHistory.mockResolvedValue([]);
   api.GetAudioInputDevices.mockResolvedValue([]);
   api.GetStats.mockResolvedValue({ averageWPM: 0, wordsThisWeek: 0, recordingsThisWeek: 0, timeSavedThisWeek: 0, totalRecordings: 0, totalWords: 0 });
-  api.GetRecordingHotkey.mockResolvedValue('rightalt');
-  api.GetCancelHotkey.mockResolvedValue('escape');
+  api.GetRecordingHotkey.mockResolvedValue(hotkeys[0]);
+  api.GetCancelHotkey.mockResolvedValue(hotkeys[1]);
   api.GetModelDownloadState.mockResolvedValue(download);
   return render(<StrictMode><App /></StrictMode>);
 }
@@ -140,5 +143,39 @@ describe('App model integration', () => {
     fireEvent.click(within(await screen.findByTestId('model-row-small')).getByRole('button', { name: 'Add Whisper Small to favorites' }));
     await waitFor(() => expect(api.SetModelFavorite).toHaveBeenCalledWith('small', true));
     await waitFor(() => expect(api.GetModels.mock.calls.length).toBeGreaterThan(before));
+  });
+});
+
+describe('App hotkey labels', () => {
+  beforeEach(() => {
+    resetListeners();
+    Object.values(api).forEach((fn) => {
+      fn.mockReset();
+      fn.mockImplementation(() => Promise.resolve());
+    });
+    api.CheckAccessibilityPermission.mockResolvedValue(true);
+  });
+
+  it('never flashes macOS symbols on Windows while the platform loads', async () => {
+    let resolvePlatform!: (p: string) => void;
+    setup({ platform: new Promise<string>((resolve) => { resolvePlatform = resolve; }) });
+    await screen.findByText('Start recording');
+    expect(document.querySelector('.action-shortcut')).toBeNull();
+    expect(document.querySelector('.hotkey-hint')).toBeNull();
+    expect(document.body).not.toHaveTextContent('⌥');
+
+    await act(async () => resolvePlatform('windows'));
+    await waitFor(() => expect(document.querySelector('.action-shortcut')).toHaveTextContent(/^Alt$/));
+    expect(document.querySelector('.hotkey-hint kbd')).toHaveTextContent(/^Right Alt$/);
+    expect(document.body).not.toHaveTextContent('⌥');
+  });
+
+  it('shows the configured keys in the recording overlay', async () => {
+    setup({ platform: 'darwin', hotkeys: ['rightcommand', 'f10'] });
+    await waitFor(() => expect(listenerCount('stateChanged')).toBe(1));
+    act(() => EventsEmit('stateChanged', appState({ state: 'recording' })));
+    const stop = await screen.findByRole('button', { name: /^Stop/ });
+    expect(stop.querySelector('kbd')).toHaveTextContent(/^⌘$/);
+    expect(screen.getByRole('button', { name: /^Cancel/ }).querySelector('kbd')).toHaveTextContent(/^F10$/);
   });
 });

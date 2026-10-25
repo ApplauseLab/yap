@@ -32,5 +32,19 @@
   { "key": "a", "darwin": "A", "windows": "A", "linux": "A" },
   { "key": "z", "darwin": "Z", "windows": "Z", "linux": "Z" },
   { "key": "7", "darwin": "7", "windows": "7", "linux": "7" },
-  { "key": " ", "darwin": "", "windows": "", "linux": "" }
+  { "key": " ", "darwin": "", "windows": "", "linux": "" },
+  { "key": "leftcommand", "darwin": "⌘", "windows": "Win", "linux": "Super" },
+  { "key": "rightcmd", "darwin": "⌘", "windows": "Win", "linux": "Super" },
+  { "key": "rightsuper", "darwin": "⌘", "windows": "Win", "linux": "Super" },
+  { "key": "leftwin", "darwin": "⌘", "windows": "Win", "linux": "Super" },
+  { "key": "rightcontrol", "darwin": "⌃", "windows": "Ctrl", "linux": "Ctrl" },
+  { "key": "leftctrl", "darwin": "⌃", "windows": "Ctrl", "linux": "Ctrl" },
+  { "key": "function", "darwin": "fn", "windows": "Fn", "linux": "Fn" },
+  { "key": "arrowleft", "darwin": "←", "windows": "←", "linux": "←" },
+  { "key": "right", "darwin": "→", "windows": "→", "linux": "→" },
+  { "key": "down", "darwin": "↓", "windows": "↓", "linux": "↓" },
+  { "key": "arrowup", "darwin": "↑", "windows": "↑", "linux": "↑" },
+  { "key": "  Escape ", "darwin": "Esc", "windows": "Esc", "linux": "Esc" },
+  { "key": "pageup", "darwin": "PAGEUP", "windows": "PAGEUP", "linux": "PAGEUP" },
+  { "key": "rightfoo", "darwin": "RIGHTFOO", "windows": "RIGHTFOO", "linux": "RIGHTFOO" }
 ]

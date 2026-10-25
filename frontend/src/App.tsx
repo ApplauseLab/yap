@@ -133,6 +133,7 @@ function App() {
   const [cancelHotkey, setCancelHotkey] = useState<string>('escape');
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [platform, setPlatform] = useState<string>('darwin');
+  const [hotkeyLabelsReady, setHotkeyLabelsReady] = useState<boolean>(false);
   const [isCapturingHotkey, setIsCapturingHotkey] = useState<boolean>(false);
   const [isCapturingCancelKey, setIsCapturingCancelKey] = useState<boolean>(false);
   const [accessibilityRecovery, setAccessibilityRecovery] = useState<AccessibilityRecoveryState>('checking');
@@ -256,8 +257,13 @@ function App() {
     GetHistory().then((h: HistoryItem[]) => setHistory(h));
     GetAudioInputDevices().then((devices: AudioInputDevice[]) => setAudioDevices(devices));
     GetStats().then((s: UsageStats) => setStats(s));
-    GetRecordingHotkey().then((h: string) => setCurrentHotkey(h));
-    GetCancelHotkey().then((h: string) => setCancelHotkey(h));
+    // Hotkey badges stay hidden until the real keys and platform are known,
+    // so Windows never flashes the macOS defaults.
+    Promise.allSettled([
+      GetRecordingHotkey().then((h: string) => setCurrentHotkey(h)),
+      GetCancelHotkey().then((h: string) => setCancelHotkey(h)),
+      GetPlatform().then((p: string) => setPlatform(p)),
+    ]).then(() => setHotkeyLabelsReady(true));
     LogInfo('[frontend] App initial data load requested');
 
     LogInfo('[frontend] Setting up EventsOn for stateChanged');
@@ -768,10 +774,12 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="hotkey-hint">
-            <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
-            <span>to record</span>
-          </div>
+          {hotkeyLabelsReady && (
+            <div className="hotkey-hint">
+              <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
+              <span>to record</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -894,7 +902,9 @@ function App() {
                       {needsDownload ? 'Download selected model first' : 'Turn your voice to text with a single click'}
                     </span>
                   </div>
-                  <kbd className="action-shortcut">{getHotkeyShortDisplay(currentHotkey)}</kbd>
+                  {hotkeyLabelsReady && (
+                    <kbd className="action-shortcut">{getHotkeyShortDisplay(currentHotkey)}</kbd>
+                  )}
                 </div>
 
                 <div className="action-item" onClick={() => setCurrentPage('settings')}>
