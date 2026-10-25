@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"context"
+	"strings"
 
 	"yap/internal/models"
 )
@@ -29,6 +30,23 @@ const (
 	ModelMediumEn Model = "medium.en"
 	ModelLargeV3  Model = "large-v3"
 )
+
+// WhisperLanguage returns the language passed to whisper.cpp for m: "en" for
+// English-only models and "auto" (detect per recording) otherwise. whisper.cpp
+// itself defaults to "en", which makes multilingual models translate other
+// languages into English instead of transcribing them.
+func (m Model) WhisperLanguage() string {
+	if spec, ok := models.LookupModel(string(m)); ok {
+		if spec.EnglishOnly {
+			return "en"
+		}
+		return "auto"
+	}
+	if strings.HasSuffix(string(m), ".en") {
+		return "en"
+	}
+	return "auto"
+}
 
 // KnownModels lists the typed identifiers of every catalog model.
 func KnownModels() []Model {

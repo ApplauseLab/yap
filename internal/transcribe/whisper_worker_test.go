@@ -268,6 +268,12 @@ func TestWhisperWorkerHelper(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if languageLog := os.Getenv("YAP_TEST_WORKER_LANGUAGE_LOG"); languageLog != "" {
+			if f, err := os.OpenFile(languageLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+				_, _ = f.WriteString(r.FormValue("language") + "\n")
+				_ = f.Close()
+			}
+		}
 		file, _, err := r.FormFile("file")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

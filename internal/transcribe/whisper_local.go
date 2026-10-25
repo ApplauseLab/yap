@@ -80,15 +80,14 @@ func (e *LocalEngine) TranscribeWAV(ctx context.Context, wavData []byte) (string
 		return "", err
 	}
 
-	// Get model path
-	modelPath := e.getModelPath()
+	modelPath, language := e.modelSnapshot()
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("model file not found: %s. Please download the model first", modelPath)
 	}
 
 	var workerErr error
 	if e.findWhisperServerBinary() != "" {
-		text, err := e.transcribePersistent(ctx, wavData, modelPath)
+		text, err := e.transcribePersistent(ctx, wavData, modelPath, language)
 		if err == nil {
 			return text, nil
 		}
@@ -124,6 +123,7 @@ func (e *LocalEngine) TranscribeWAV(ctx context.Context, wavData []byte) (string
 	baseArgs := []string{
 		"-m", modelPath,
 		"-f", tmpFile.Name(),
+		"-l", language,
 		"--no-timestamps",
 		"-otxt",
 		"-of", tmpFile.Name(),
@@ -596,6 +596,14 @@ func trimCommandOutput(output string) string {
 // Name returns the provider name
 func (e *LocalEngine) Name() Provider {
 	return ProviderLocal
+}
+
+// modelSnapshot returns the current model's file path and whisper.cpp
+// language together, so a concurrent SetModel cannot mix the two.
+func (e *LocalEngine) modelSnapshot() (path string, language string) {
+	e.modelMu.RLock()
+	defer e.modelMu.RUnlock()
+	return filepath.Join(e.modelsDir, fmt.Sprintf("ggml-%s.bin", e.model)), e.model.WhisperLanguage()
 }
 
 // getModelPath returns the full path to the model file
