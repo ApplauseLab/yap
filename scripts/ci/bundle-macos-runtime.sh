@@ -1,6 +1,9 @@
 #!/bin/bash
 # Bundle PortAudio and the from-source whisper.cpp runtime into Yap.app, make every
-# reference bundle-relative, audit the result, smoke test it and ad-hoc sign it.
+# reference bundle-relative, audit the result, smoke test it and sign it.
+# Signing is delegated to sign-macos-app.sh, which is ad-hoc unless MACOS_SIGN_IDENTITY
+# is set. The post-signing smoke test is what catches Hardened Runtime breaking the
+# ggml backends, so it must keep running after any signing change.
 # Usage: scripts/ci/bundle-macos-runtime.sh <path/to/Yap.app> <whisper.cpp source dir> [model]
 #
 # Layout (resolved by internal/transcribe relative to Contents/Resources/bin):
@@ -13,6 +16,10 @@
 # [model] is a real Whisper model (CI uses ggml-tiny.en) so the smoke test can check the
 # transcript. Without it, whisper.cpp's random-weight test model only proves inference runs.
 set -euo pipefail
+
+# Resolved before the smoke tests cd into a scratch directory, which would otherwise
+# break a relative path to the sibling signing script.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 APP="$(cd "${1:?app bundle path required}" && pwd)"
 WHISPER_SRC="$(cd "${2:?whisper.cpp source dir required}" && pwd)"
@@ -193,17 +200,7 @@ smoke_test() {
 cd "$SMOKE_DIR"
 smoke_test before
 
-echo "Signing bundled macOS runtime files"
-for bin in "$RES/bin"/* "$RES/lib"/*.dylib "$RES/libexec"/* "$APP/Contents/Frameworks"/*.dylib; do
-  # The bin/ backend symlinks are sealed by the app signature; their targets are signed here.
-  [ -f "$bin" ] && [ ! -L "$bin" ] || continue
-  codesign --force --sign - "$bin"
-  codesign --verify --strict --verbose=2 "$bin"
-done
-codesign --force --sign - "$APP/Contents/MacOS/Yap"
-codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/Yap"
-codesign --force --deep --sign - "$APP"
-codesign --verify --deep --strict --verbose=2 "$APP"
+"$SCRIPT_DIR/sign-macos-app.sh" "$APP"
 
 smoke_test after
 cd /

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- PortAudio records through CoreAudio; Hardened Runtime gates microphone access
+         on this entitlement in addition to the TCC prompt driven by
+         NSMicrophoneUsageDescription in Info.plist. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- internal/transcribe points GGML_BACKEND_PATH at Resources/libexec/libggml-*.so
+         and ggml dlopens the rest by scanning that directory. Those modules are signed
+         with the same identity as the app, but they are plain .so files rather than
+         bundled frameworks, so library validation rejects them without this. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

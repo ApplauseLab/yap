@@ -108,8 +108,70 @@ jobs:
             exit 1
           fi
 
+      # Secrets are unavailable to forks, so unsigned dev builds stay possible while a
+      # real release without a certificate fails instead of silently shipping ad-hoc.
+      - name: Import signing certificate
+        id: signing
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if [ -z "$CERT_P12" ] || [ -z "$SIGN_IDENTITY" ]; then
+            if [ "$VERSION" != "dev" ]; then
+              echo "::error::MACOS_CERT_P12/MACOS_SIGN_IDENTITY are required to release ${VERSION}"
+              exit 1
+            fi
+            echo "::warning::No signing certificate; building ad-hoc signed and skipping notarization"
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/yap-signing.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Lets codesign use the key without an interactive authorization prompt.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+
+          # Prepend to the search list instead of replacing it, so the runner's default
+          # keychains still resolve. Word splitting is intended: each existing path has
+          # to arrive as its own argument.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          if ! security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$SIGN_IDENTITY"; then
+            echo "::error::Identity not found in keychain: $SIGN_IDENTITY"
+            security find-identity -v -p codesigning "$KEYCHAIN"
+            exit 1
+          fi
+          echo "identity=$SIGN_IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "notarize=true" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+
       - name: Bundle macOS runtime libraries
+        env:
+          MACOS_SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
         run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp" "$HOME/yap-models/ggml-tiny.en.bin"
+
+      # Before the DMG is built, so the image contains an already-stapled app and a copy
+      # dragged out of it launches offline without an online Gatekeeper check.
+      - name: Notarize and staple app
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          AC_KEY_ID: ${{ secrets.AC_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.AC_ISSUER_ID }}
+          AC_PRIVATE_KEY: ${{ secrets.AC_PRIVATE_KEY }}
+        run: scripts/ci/notarize-macos.sh build/bin/Yap.app
 
       - name: Create DMG
         run: |
@@ -134,6 +196,40 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/Yap.app"
           hdiutil detach "$MOUNT_DIR"
           trap - EXIT
+
+      - name: Sign, notarize and staple DMG
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          AC_KEY_ID: ${{ secrets.AC_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.AC_ISSUER_ID }}
+          AC_PRIVATE_KEY: ${{ secrets.AC_PRIVATE_KEY }}
+          IDENTITY: ${{ steps.signing.outputs.identity }}
+        run: |
+          DMG="Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+          codesign --verify --strict --verbose=2 "$DMG"
+          scripts/ci/notarize-macos.sh "$DMG"
+
+      # What a user downloading the DMG actually gets. spctl is the same assessment
+      # Gatekeeper runs on first open, so this fails here rather than on their machine.
+      - name: Verify Gatekeeper acceptance
+        if: steps.signing.outputs.notarize == 'true'
+        run: |
+          DMG="Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          spctl --assess -vvv --type open --context context:primary-signature "$DMG"
+
+          MOUNT_OUTPUT=$(hdiutil attach -readonly -nobrowse "$DMG")
+          MOUNT_DIR=$(printf '%s\n' "$MOUNT_OUTPUT" | awk '/\/Volumes\// {print substr($0, index($0, "/Volumes/")); exit}')
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
+          spctl --assess -vvv --type execute "$MOUNT_DIR/Yap.app"
+          xcrun stapler validate "$MOUNT_DIR/Yap.app"
+          codesign --display --verbose=4 "$MOUNT_DIR/Yap.app" 2>&1 | grep -E '^(Authority|TeamIdentifier)'
+          hdiutil detach "$MOUNT_DIR"
+          trap - EXIT
+
+      - name: Clean up signing keychain
+        if: always() && steps.signing.outputs.keychain != ''
+        run: security delete-keychain "${{ steps.signing.outputs.keychain }}" || true
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
@@ -716,7 +812,9 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: Yap ${{ needs.prepare.outputs.version }}
           draft: false
-          prerelease: ${{ contains(needs.prepare.outputs.version, 'dev') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'alpha') }}
+          # Any semver pre-release suffix, so -rc.1 is not published as a stable release
+          # the way an explicit dev/beta/alpha list allowed.
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
@@ -746,7 +844,48 @@ jobs:
 
             ### Installation
 
-            **macOS:** Open the DMG, drag to Applications folder
+            **macOS:** `brew install --cask applauselab/tap/yap`, or open the DMG and drag to Applications
             **Windows:** Run the installer
             **Linux (AppImage):** `chmod +x *.AppImage && ./Yap-*.AppImage`
             **Linux (DEB):** `sudo apt install ./Yap-*.deb`
+
+  # Stable releases only: a pre-release must not become the default `brew install` target.
+  update-homebrew-tap:
+    needs: [prepare, release]
+    if: ${{ !contains(needs.prepare.outputs.version, '-') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: ApplauseLab/homebrew-tap
+          # GITHUB_TOKEN is scoped to this repository, so pushing to the tap needs a PAT
+          # with contents:write on ApplauseLab/homebrew-tap.
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Bump cask
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          URL="https://github.com/ApplauseLab/yap/releases/download/v${VERSION}/Yap-${VERSION}-macOS.dmg"
+
+          # Hash the published asset rather than a CI artifact, so the cask can only
+          # describe a file users can actually download.
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/yap.dmg "$URL"
+          SHA="$(shasum -a 256 /tmp/yap.dmg | cut -d' ' -f1)"
+
+          sed -i -E "s|^  version \".*\"|  version \"${VERSION}\"|" Casks/yap.rb
+          sed -i -E "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" Casks/yap.rb
+
+          grep -q "\"${VERSION}\"" Casks/yap.rb || { echo "::error::version not updated"; exit 1; }
+          grep -q "\"${SHA}\"" Casks/yap.rb || { echo "::error::sha256 not updated"; exit 1; }
+
+          if git diff --quiet; then
+            echo "Cask already at ${VERSION}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "yap ${VERSION}"
+          git push
