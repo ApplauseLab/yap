@@ -657,52 +657,6 @@ body {
   border-radius: 10px;
 }
 
-/* What's New Section */
-.whats-new-section {
-  padding: 0 20px 20px;
-}
-
-.changelog-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: var(--bg-card);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.changelog-item {
-  display: flex;
-  gap: 16px;
-  padding: 14px 16px;
-  background: var(--bg-sidebar);
-}
-
-.changelog-date {
-  font-size: 12px;
-  color: var(--text-muted);
-  min-width: 70px;
-  flex-shrink: 0;
-}
-
-.changelog-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.changelog-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.changelog-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
 .home-download {
   margin: 0 20px 20px;
 }

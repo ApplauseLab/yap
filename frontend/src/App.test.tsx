@@ -64,6 +64,15 @@ describe('App model integration', () => {
     expect(listenerCount('downloadComplete')).toBe(0);
   });
 
+  it('Home lists Browse models second and drops the changelog', async () => {
+    setup();
+    await screen.findByText('Get started');
+    const titles = Array.from(document.querySelectorAll('.action-list .action-title')).map((el) => el.textContent);
+    expect(titles).toEqual(['Start recording', 'Browse models', 'Settings', 'View history']);
+    expect(screen.queryByText('What\'s new')).toBeNull();
+    expect(document.querySelector('.whats-new-section')).toBeNull();
+  });
+
   it('Settings summarises the active model and links into the library', async () => {
     setup();
     fireEvent.click(await screen.findByRole('button', { name: /^Settings/ }));
