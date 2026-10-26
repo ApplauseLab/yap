@@ -43,7 +43,29 @@ import {
   Quit,
   IsOnboardingCompleted,
 } from '../wailsjs/go/main/App';
-import { EventsOn, LogDebug, LogError, LogInfo } from '../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsOn, LogDebug, LogError, LogInfo } from '../wailsjs/runtime/runtime';
+
+const RELEASES_URL = 'https://github.com/ApplauseLab/yap/releases';
+const DOCS_URL = 'https://applauselab.ai/docs/yap/';
+
+// Anchors keep the href for hover/keyboard affordances, but the webview must not
+// navigate away from the app, so the click is handed to the system browser.
+function HomeLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      className="home-link"
+      href={href}
+      onClick={(event) => { event.preventDefault(); BrowserOpenURL(href); }}
+    >
+      {label}
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    </a>
+  );
+}
 
 interface AppState {
   state: string;
@@ -907,19 +929,6 @@ function App() {
                   )}
                 </div>
 
-                <div className="action-item" onClick={() => setCurrentPage('settings')}>
-                  <div className="action-icon">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="3"/>
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
-                  </div>
-                  <div className="action-content">
-                    <span className="action-title">Settings</span>
-                    <span className="action-desc">Configure provider, audio device, hotkeys, and more</span>
-                  </div>
-                </div>
-
                 <div className="action-item" onClick={() => openModelsLibrary()}>
                   <div className="action-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -931,6 +940,19 @@ function App() {
                   <div className="action-content">
                     <span className="action-title">Browse models</span>
                     <span className="action-desc">Compare, download, and switch transcription models</span>
+                  </div>
+                </div>
+
+                <div className="action-item" onClick={() => setCurrentPage('settings')}>
+                  <div className="action-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3"/>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                  </div>
+                  <div className="action-content">
+                    <span className="action-title">Settings</span>
+                    <span className="action-desc">Configure provider, audio device, hotkeys, and more</span>
                   </div>
                 </div>
 
@@ -947,33 +969,10 @@ function App() {
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* What's New Section */}
-            <div className="whats-new-section">
-              <h3 className="section-title">What's new</h3>
-              <div className="changelog-list">
-                <div className="changelog-item">
-                  <span className="changelog-date">May 2026</span>
-                  <div className="changelog-content">
-                    <span className="changelog-title">Native overlay with waveform</span>
-                    <span className="changelog-desc">Recording overlay now shows above all apps with animated waveform visualization.</span>
-                  </div>
-                </div>
-                <div className="changelog-item">
-                  <span className="changelog-date">May 2026</span>
-                  <div className="changelog-content">
-                    <span className="changelog-title">Auto-paste transcriptions</span>
-                    <span className="changelog-desc">Transcribed text is automatically pasted into your active text field.</span>
-                  </div>
-                </div>
-                <div className="changelog-item">
-                  <span className="changelog-date">May 2026</span>
-                  <div className="changelog-content">
-                    <span className="changelog-title">Usage statistics</span>
-                    <span className="changelog-desc">Track your words per minute, time saved, and weekly usage.</span>
-                  </div>
-                </div>
+              <div className="home-links">
+                <HomeLink href={RELEASES_URL} label="What's new" />
+                <HomeLink href={DOCS_URL} label="Docs" />
               </div>
             </div>
 
