@@ -19,15 +19,15 @@ export function listenerCount(eventName: string): number {
   return listeners.get(eventName)?.size ?? 0;
 }
 
-export function resetListeners(): void {
-  listeners.clear();
-  openedUrls.length = 0;
-}
-
 export const openedUrls: string[] = [];
 
 export function BrowserOpenURL(url: string): void {
   openedUrls.push(url);
+}
+
+export function resetListeners(): void {
+  listeners.clear();
+  openedUrls.length = 0;
 }
 
 export const LogInfo = (_message: string) => {};
