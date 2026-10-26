@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Api from '../wailsjs/go/main/App';
 import App from './App';
-import { EventsEmit, listenerCount, resetListeners } from './test/runtimeMock';
+import { EventsEmit, listenerCount, openedUrls, resetListeners } from './test/runtimeMock';
 import { MODELS, downloadState } from './test/fixtures';
 import { IDLE_DOWNLOAD } from './modelTypes';
 
@@ -69,8 +69,18 @@ describe('App model integration', () => {
     await screen.findByText('Get started');
     const titles = Array.from(document.querySelectorAll('.action-list .action-title')).map((el) => el.textContent);
     expect(titles).toEqual(['Start recording', 'Browse models', 'Settings', 'View history']);
-    expect(screen.queryByText('What\'s new')).toBeNull();
     expect(document.querySelector('.whats-new-section')).toBeNull();
+    expect(document.querySelector('.changelog-list')).toBeNull();
+  });
+
+  it('Home opens release notes and docs in the system browser', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('link', { name: /^What's new/ }));
+    fireEvent.click(screen.getByRole('link', { name: /^Docs/ }));
+    expect(openedUrls).toEqual([
+      'https://github.com/ApplauseLab/yap/releases',
+      'https://applauselab.ai/docs/yap/',
+    ]);
   });
 
   it('Settings summarises the active model and links into the library', async () => {

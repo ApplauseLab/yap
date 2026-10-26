@@ -43,7 +43,10 @@ import {
   Quit,
   IsOnboardingCompleted,
 } from '../wailsjs/go/main/App';
-import { EventsOn, LogDebug, LogError, LogInfo } from '../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsOn, LogDebug, LogError, LogInfo } from '../wailsjs/runtime/runtime';
+
+const RELEASES_URL = 'https://github.com/ApplauseLab/yap/releases';
+const DOCS_URL = 'https://applauselab.ai/docs/yap/';
 
 interface AppState {
   state: string;
@@ -946,6 +949,33 @@ function App() {
                     <span className="action-desc">Browse and replay past transcriptions</span>
                   </div>
                 </div>
+              </div>
+
+              <div className="home-links">
+                <a
+                  className="home-link"
+                  href={RELEASES_URL}
+                  onClick={(event) => { event.preventDefault(); BrowserOpenURL(RELEASES_URL); }}
+                >
+                  What's new
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </a>
+                <a
+                  className="home-link"
+                  href={DOCS_URL}
+                  onClick={(event) => { event.preventDefault(); BrowserOpenURL(DOCS_URL); }}
+                >
+                  Docs
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </a>
               </div>
             </div>
 

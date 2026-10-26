@@ -657,6 +657,27 @@ body {
   border-radius: 10px;
 }
 
+.home-links {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+  padding: 0 4px;
+}
+
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.home-link:hover {
+  color: var(--text-secondary);
+}
+
 .home-download {
   margin: 0 20px 20px;
 }
