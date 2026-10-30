@@ -33,13 +33,18 @@ SMOKE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/yap-smoke.XXXXXX")"
 RES="$APP/Contents/Resources"
 mkdir -p "$APP/Contents/Frameworks" "$RES/bin" "$RES/lib" "$RES/libexec"
 
-PORTAUDIO_PREFIX="$(brew --prefix portaudio)"
-cp -L "$PORTAUDIO_PREFIX/lib/libportaudio.2.dylib" "$APP/Contents/Frameworks/"
-chmod u+w "$APP/Contents/Frameworks/libportaudio.2.dylib"
-install_name_tool -id "@executable_path/../Frameworks/libportaudio.2.dylib" "$APP/Contents/Frameworks/libportaudio.2.dylib"
-otool -L "$APP/Contents/MacOS/Yap" | awk '/libportaudio\.2\.dylib/ {print $1}' | while read -r dep; do
-  install_name_tool -change "$dep" "@executable_path/../Frameworks/libportaudio.2.dylib" "$APP/Contents/MacOS/Yap"
-done
+# The soname differs by build system: Homebrew's autotools build links
+# libportaudio.2.dylib, the from-source CMake build links @rpath/libportaudio.dylib.
+# Take the name from what the executable actually references rather than hardcoding it.
+PORTAUDIO_DEP="$(otool -L "$APP/Contents/MacOS/Yap" | awk 'NR > 1 && $1 ~ /libportaudio/ {print $1; exit}')"
+[ -n "$PORTAUDIO_DEP" ] || { echo "::error::Yap does not link PortAudio"; exit 1; }
+PORTAUDIO_LIB="$(basename "$PORTAUDIO_DEP")"
+
+PORTAUDIO_PREFIX="${PORTAUDIO_PREFIX:-$(brew --prefix portaudio)}"
+cp -L "$PORTAUDIO_PREFIX/lib/$PORTAUDIO_LIB" "$APP/Contents/Frameworks/"
+chmod u+w "$APP/Contents/Frameworks/$PORTAUDIO_LIB"
+install_name_tool -id "@executable_path/../Frameworks/$PORTAUDIO_LIB" "$APP/Contents/Frameworks/$PORTAUDIO_LIB"
+install_name_tool -change "$PORTAUDIO_DEP" "@executable_path/../Frameworks/$PORTAUDIO_LIB" "$APP/Contents/MacOS/Yap"
 
 cp "$WHISPER_BIN/whisper-cli" "$WHISPER_BIN/whisper-server" "$RES/bin/"
 chmod +x "$RES/bin/whisper-cli" "$RES/bin/whisper-server"
@@ -71,6 +76,18 @@ for lib in "$RES/libexec"/libggml-cpu-apple_*.so; do
   ln -sfn "../libexec/$(basename "$lib")" "$RES/bin/$(basename "$lib")"
 done
 
+# LSMinimumSystemVersion is only a claim; dyld enforces each binary's own minos and
+# refuses to load one built for a newer OS than the host. A dependency compiled on a
+# newer runner than the declared floor therefore crashes the app at launch on older
+# systems, so the claim is checked against every bundled binary rather than trusted.
+MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")"
+echo "Declared LSMinimumSystemVersion: $MIN_OS"
+
+# Compare dotted versions as sortable tuples: 11.0 must not be "greater" than 9.0.
+version_gt() {
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" != "$1" ]
+}
+
 # Every load command must point at the OS or inside the bundle.
 echo "Auditing bundled Mach-O dependencies"
 failed=0
@@ -78,6 +95,11 @@ while IFS= read -r -d '' file; do
   file "$file" | grep -q 'Mach-O' || continue
   echo "== ${file#"$APP"/}"
   otool -L "$file" | tail -n +2
+  minos="$(otool -l "$file" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+  if [ -n "$minos" ] && version_gt "$minos" "$MIN_OS"; then
+    echo "::error::${file#"$APP"/} requires macOS $minos but the app claims $MIN_OS"
+    failed=1
+  fi
   if otool -L "$file" | tail -n +2 | awk '{print $1}' | grep -vE '^(/System/Library/|/usr/lib/|@executable_path/|@loader_path/)' >/dev/null; then
     echo "::error::Dependency outside the OS or app bundle in $file"
     failed=1

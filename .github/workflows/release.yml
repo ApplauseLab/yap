@@ -16,6 +16,10 @@ env:
   NODE_VERSION: '20'
   # The Wails CLI version is read from go.mod in each build job.
   WHISPER_CPP_VERSION: 'v1.9.5'
+  # Floor for every macOS binary, enforced against LSMinimumSystemVersion by
+  # bundle-macos-runtime.sh. 11.0 is the oldest release that runs on Apple Silicon,
+  # which is the only architecture the macOS job builds.
+  MACOS_DEPLOYMENT_TARGET: '11.0'
   # microsoft/vcpkg release 2026.10.16
   VCPKG_COMMIT: '9eec002df1cd109f8f104cd966a763daf9751489'
 
@@ -68,7 +72,12 @@ jobs:
 
       - name: Install macOS dependencies
         run: |
-          brew install portaudio create-dmg
+          brew install create-dmg
+
+      # From source rather than Homebrew: a bottle is compiled for the OS it was bottled
+      # on, so the runner's macOS would silently become the app's real minimum.
+      - name: Build PortAudio
+        run: scripts/ci/build-portaudio-macos.sh "$RUNNER_TEMP/portaudio"
 
       # Built from source at WHISPER_CPP_VERSION like Windows and Linux, so the bundle
       # does not follow Homebrew's whisper.cpp/ggml/libomp versions.
@@ -85,9 +94,27 @@ jobs:
         run: npm install
         working-directory: frontend
 
+      # PKG_CONFIG_PATH points cgo at the from-source PortAudio; the Go binding resolves
+      # it with `#cgo pkg-config: portaudio-2.0`, so without this it links Homebrew's.
+      # CGO_CFLAGS/CGO_LDFLAGS are set as well because Go's build cache keys on those but
+      # not on PKG_CONFIG_PATH: a cache entry from a build that used Homebrew's PortAudio
+      # is otherwise reused verbatim, silently relinking the wrong library.
       - name: Build macOS App
+        env:
+          PKG_CONFIG_PATH: ${{ runner.temp }}/portaudio/lib/pkgconfig
+          CGO_CFLAGS: -I${{ runner.temp }}/portaudio/include
+          CGO_LDFLAGS: -L${{ runner.temp }}/portaudio/lib
+          MACOSX_DEPLOYMENT_TARGET: ${{ env.MACOS_DEPLOYMENT_TARGET }}
         run: |
           wails build -platform darwin/arm64 -o "Yap" -ldflags "-X main.appVersion=${{ needs.prepare.outputs.version }}"
+
+          # Fails loudly if the cache hazard above ever recurs, rather than shipping a
+          # binary that needs a macOS newer than the one the app advertises.
+          if otool -L build/bin/Yap.app/Contents/MacOS/Yap | grep -q '/opt/homebrew/.*portaudio'; then
+            echo "::error::Yap linked Homebrew's PortAudio instead of the from-source build"
+            otool -L build/bin/Yap.app/Contents/MacOS/Yap | grep -i portaudio
+            exit 1
+          fi
 
       - name: Cache Whisper smoke-test model
         uses: actions/cache@v4
@@ -161,6 +188,7 @@ jobs:
       - name: Bundle macOS runtime libraries
         env:
           MACOS_SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          PORTAUDIO_PREFIX: ${{ runner.temp }}/portaudio
         run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp" "$HOME/yap-models/ggml-tiny.en.bin"
 
       # Before the DMG is built, so the image contains an already-stapled app and a copy
