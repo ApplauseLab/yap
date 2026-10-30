@@ -883,15 +883,21 @@ jobs:
     if: ${{ !contains(needs.prepare.outputs.version, '-') }}
     runs-on: ubuntu-24.04
     steps:
+      - name: Checkout yap
+        uses: actions/checkout@v4
+        with:
+          path: yap
+
       - name: Checkout tap
         uses: actions/checkout@v4
         with:
           repository: ApplauseLab/homebrew-tap
+          path: tap
           # GITHUB_TOKEN is scoped to this repository, so pushing to the tap needs a PAT
           # with contents:write on ApplauseLab/homebrew-tap.
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-      - name: Bump cask
+      - name: Publish cask
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -899,21 +905,25 @@ jobs:
           URL="https://github.com/ApplauseLab/yap/releases/download/v${VERSION}/Yap-${VERSION}-macOS.dmg"
 
           # Hash the published asset rather than a CI artifact, so the cask can only
-          # describe a file users can actually download.
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/yap.dmg "$URL"
-          SHA="$(shasum -a 256 /tmp/yap.dmg | cut -d' ' -f1)"
+          # ever describe the exact file users download.
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$RUNNER_TEMP/yap.dmg" "$URL"
+          SHA="$(shasum -a 256 "$RUNNER_TEMP/yap.dmg" | cut -d' ' -f1)"
 
-          sed -i -E "s|^  version \".*\"|  version \"${VERSION}\"|" Casks/yap.rb
-          sed -i -E "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" Casks/yap.rb
+          mkdir -p tap/Casks
+          sed -E -e "s|^  version \".*\"|  version \"${VERSION}\"|" \
+                 -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" \
+                 yap/packaging/homebrew/yap.rb > tap/Casks/yap.rb
 
-          grep -q "\"${VERSION}\"" Casks/yap.rb || { echo "::error::version not updated"; exit 1; }
-          grep -q "\"${SHA}\"" Casks/yap.rb || { echo "::error::sha256 not updated"; exit 1; }
+          grep -q "version \"${VERSION}\"" tap/Casks/yap.rb || { echo "::error::version not substituted"; exit 1; }
+          grep -q "sha256 \"${SHA}\"" tap/Casks/yap.rb || { echo "::error::sha256 not substituted"; exit 1; }
 
-          if git diff --quiet; then
+          cd tap
+          if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
             echo "Cask already at ${VERSION}"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "yap ${VERSION}"
+          git add Casks/yap.rb
+          git commit -m "yap ${VERSION}"
           git push
