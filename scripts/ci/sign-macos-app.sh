@@ -68,17 +68,25 @@ codesign --verify --strict --verbose=2 "$APP"
 # --verify checks the seal; --display proves the flags and entitlements we rely on
 # actually landed, which is what notarization and the runtime care about.
 echo "Verifying signature of $APP"
-codesign --display --verbose=4 "$APP" 2>&1 | grep -E '^(Authority|TeamIdentifier|Identifier|Signature)' || true
-codesign --display --entitlements - "$APP"
+# Captured rather than piped straight into grep: under `set -o pipefail`, `grep -q` exits
+# on the first match and the SIGPIPE it sends codesign fails the whole pipeline, which
+# inverts these checks into false negatives once the bundle is big enough that codesign
+# is still writing when grep leaves.
+SIGNATURE_INFO="$(codesign --display --verbose=2 "$APP" 2>&1)"
+SIGNATURE_ENTITLEMENTS="$(codesign --display --entitlements - "$APP" 2>&1)"
+
+printf '%s\n' "$SIGNATURE_INFO" | grep -E '^(Authority|TeamIdentifier|Identifier|Signature)' || true
+printf '%s\n' "$SIGNATURE_ENTITLEMENTS"
 
 # codesign reports this as flags=0x10002(adhoc,runtime) or 0x10000(runtime); match the
 # decoded name rather than the hex, which varies with the other flags that are set.
-if ! codesign --display --verbose=2 "$APP" 2>&1 | grep -qE 'flags=0x[0-9a-f]+\(.*runtime'; then
+if ! printf '%s\n' "$SIGNATURE_INFO" | grep -qE 'flags=0x[0-9a-f]+\(.*runtime'; then
   echo "::error::Hardened Runtime flag missing from $APP"
+  printf '%s\n' "$SIGNATURE_INFO"
   exit 1
 fi
 
-if ! codesign --display --entitlements - "$APP" 2>&1 | grep -q 'com.apple.security.device.audio-input'; then
+if ! printf '%s\n' "$SIGNATURE_ENTITLEMENTS" | grep -q 'com.apple.security.device.audio-input'; then
   echo "::error::audio-input entitlement missing from $APP; the microphone will fail at runtime"
   exit 1
 fi
