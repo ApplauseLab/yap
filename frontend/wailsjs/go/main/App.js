@@ -18,6 +18,10 @@ export function CheckMicrophonePermission() {
   return window['go']['main']['App']['CheckMicrophonePermission']();
 }
 
+export function ChooseTranscriptionOutputDir() {
+  return window['go']['main']['App']['ChooseTranscriptionOutputDir']();
+}
+
 export function ClearHistory() {
   return window['go']['main']['App']['ClearHistory']();
 }
@@ -168,6 +172,10 @@ export function SetProvider(arg1) {
 
 export function SetRecordingHotkey(arg1) {
   return window['go']['main']['App']['SetRecordingHotkey'](arg1);
+}
+
+export function SetSaveTranscriptions(arg1) {
+  return window['go']['main']['App']['SetSaveTranscriptions'](arg1);
 }
 
 export function SetSoundEnabled(arg1) {

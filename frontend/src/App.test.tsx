@@ -17,7 +17,7 @@ const api = Api as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
 function appState(overrides: Record<string, unknown> = {}) {
   return {
-    state: 'ready', recordingTime: 0, lastTranscript: '', error: '',
+    state: 'ready', recordingTime: 0, lastTranscript: '', error: '', transcriptionOutputError: '',
     currentModel: 'base.en', currentProvider: 'local', modelReady: true, hotkeyEnabled: true,
     ...overrides,
   };
@@ -26,12 +26,13 @@ function appState(overrides: Record<string, unknown> = {}) {
 function setup({
   state = appState(), models = MODELS, download = IDLE_DOWNLOAD,
   platform = 'linux' as string | Promise<string>, hotkeys = ['rightalt', 'escape'],
+  config = {} as Record<string, unknown>,
 } = {}) {
   api.IsOnboardingCompleted.mockResolvedValue(true);
   api.GetPlatform.mockImplementation(() => Promise.resolve(platform));
   api.GetState.mockResolvedValue(state);
   api.GetModels.mockResolvedValue(models);
-  api.GetConfig.mockResolvedValue({ provider: state.currentProvider, model: state.currentModel, autoPaste: true });
+  api.GetConfig.mockResolvedValue({ provider: state.currentProvider, model: state.currentModel, autoPaste: true, saveTranscriptions: false, transcriptionOutputDir: '', ...config });
   api.GetHistory.mockResolvedValue([]);
   api.GetAudioInputDevices.mockResolvedValue([]);
   api.GetStats.mockResolvedValue({ averageWPM: 0, wordsThisWeek: 0, recordingsThisWeek: 0, timeSavedThisWeek: 0, totalRecordings: 0, totalWords: 0 });
@@ -196,5 +197,99 @@ describe('App hotkey labels', () => {
     const stop = await screen.findByRole('button', { name: /^Stop/ });
     expect(stop.querySelector('kbd')).toHaveTextContent(/^⌘$/);
     expect(screen.getByRole('button', { name: /^Cancel/ }).querySelector('kbd')).toHaveTextContent(/^F10$/);
+  });
+});
+
+describe('Automatic transcription files', () => {
+  beforeEach(() => {
+    resetListeners();
+    Object.values(api).forEach((fn) => {
+      fn.mockReset();
+      fn.mockImplementation(() => Promise.resolve());
+    });
+  });
+
+  async function openOutputSettings(config: Record<string, unknown> = {}) {
+    setup({ config });
+    fireEvent.click(await screen.findByRole('button', { name: /^Settings$/ }));
+  }
+
+  const toggle = () => screen.getByRole('checkbox', { name: 'Save transcriptions as .txt' });
+
+  it('defaults off and requires a chosen folder before enabling', async () => {
+    await openOutputSettings();
+    expect(toggle()).not.toBeChecked();
+    expect(toggle()).toBeDisabled();
+    expect(screen.getByText('Choose an output folder to enable automatic saving.')).toBeInTheDocument();
+    api.ChooseTranscriptionOutputDir.mockResolvedValue('/exports/文字');
+    api.GetConfig.mockResolvedValue({ saveTranscriptions: false, transcriptionOutputDir: '/exports/文字' });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
+    expect(await screen.findByText('/exports/文字')).toBeInTheDocument();
+    expect(toggle()).toBeEnabled();
+    expect(toggle()).not.toBeChecked();
+    expect(api.SetSaveTranscriptions).not.toHaveBeenCalled();
+  });
+
+  it('persists enabling/disabling and keeps the selected folder', async () => {
+    await openOutputSettings({ transcriptionOutputDir: '/exports' });
+    api.GetConfig.mockResolvedValue({ saveTranscriptions: true, transcriptionOutputDir: '/exports' });
+    fireEvent.click(toggle());
+    await waitFor(() => expect(toggle()).toBeChecked());
+    expect(api.SetSaveTranscriptions).toHaveBeenCalledWith(true);
+    api.GetConfig.mockResolvedValue({ saveTranscriptions: false, transcriptionOutputDir: '/exports' });
+    fireEvent.click(toggle());
+    await waitFor(() => expect(toggle()).not.toBeChecked());
+    expect(api.SetSaveTranscriptions).toHaveBeenLastCalledWith(false);
+    expect(screen.getByText('/exports')).toBeInTheDocument();
+  });
+
+  it('prevents duplicate folder dialogs and leaves settings unchanged on cancel', async () => {
+    await openOutputSettings({ transcriptionOutputDir: '/original', saveTranscriptions: true });
+    let finish!: (path: string) => void;
+    api.ChooseTranscriptionOutputDir.mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const choose = screen.getByRole('button', { name: 'Change folder' });
+    fireEvent.click(choose);
+    expect(choose).toBeDisabled();
+    expect(toggle()).toBeDisabled();
+    fireEvent.click(choose);
+    expect(api.ChooseTranscriptionOutputDir).toHaveBeenCalledTimes(1);
+    await act(async () => finish(''));
+    expect(toggle()).toBeEnabled();
+    expect(toggle()).toBeChecked();
+    expect(screen.getByText('/original')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each(['disk full', new Error('permission denied')])('shows settings failures without falsely enabling: %s', async (error) => {
+    await openOutputSettings({ transcriptionOutputDir: '/exports' });
+    api.SetSaveTranscriptions.mockRejectedValueOnce(error);
+    fireEvent.click(toggle());
+    expect(await screen.findByRole('alert')).toHaveTextContent(error instanceof Error ? error.message : error);
+    expect(toggle()).not.toBeChecked();
+    expect(toggle()).toBeEnabled();
+    api.GetConfig.mockResolvedValue({ saveTranscriptions: true, transcriptionOutputDir: '/exports' });
+    fireEvent.click(toggle());
+    await waitFor(() => expect(toggle()).toBeChecked());
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('reports folder selection failures and preserves the configured folder', async () => {
+    await openOutputSettings({ transcriptionOutputDir: '/original', saveTranscriptions: true });
+    api.ChooseTranscriptionOutputDir.mockRejectedValue('transcription output folder is not writable');
+    fireEvent.click(screen.getByRole('button', { name: 'Change folder' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('not writable');
+    expect(screen.getByText('/original')).toBeInTheDocument();
+    expect(toggle()).toBeChecked();
+  });
+
+  it('shows automatic-save errors on every page and routes to Settings for recovery', async () => {
+    setup({ state: appState({ lastTranscript: 'Keep this text', transcriptionOutputError: 'Could not save transcription: disk full' }) });
+    expect(await screen.findByRole('alert')).toHaveTextContent('disk full. The transcription is still available in History.');
+    fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    expect(screen.getByRole('heading', { name: 'Transcription files' })).toBeInTheDocument();
+    fireEvent.click(nav('History'));
+    expect(screen.getByRole('alert')).toHaveTextContent('disk full');
+    act(() => EventsEmit('stateChanged', appState()));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

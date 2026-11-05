@@ -27,6 +27,10 @@ type Config struct {
 	// Auto-paste after transcription
 	AutoPaste bool `json:"autoPaste"`
 
+	// Save completed transcriptions as individual .txt files in the chosen folder.
+	SaveTranscriptions     bool   `json:"saveTranscriptions"`
+	TranscriptionOutputDir string `json:"transcriptionOutputDir"`
+
 	// Show notification after transcription
 	ShowNotification bool `json:"showNotification"`
 
@@ -181,8 +185,16 @@ func (cm *ConfigManager) saveLocked() error {
 func (cm *ConfigManager) update(change func(*Config)) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	change(cm.config)
-	return cm.saveLocked()
+	previous := cm.config
+	next := *previous
+	next.FavoriteModels = append([]string(nil), previous.FavoriteModels...)
+	change(&next)
+	cm.config = &next
+	if err := cm.saveLocked(); err != nil {
+		cm.config = previous
+		return err
+	}
+	return nil
 }
 
 // Get returns a snapshot of the current configuration
@@ -220,6 +232,14 @@ func (cm *ConfigManager) SetOpenAIAPIKey(key string) error {
 // SetAutoPaste updates the auto-paste setting
 func (cm *ConfigManager) SetAutoPaste(enabled bool) error {
 	return cm.update(func(c *Config) { c.AutoPaste = enabled })
+}
+
+func (cm *ConfigManager) SetSaveTranscriptions(enabled bool) error {
+	return cm.update(func(c *Config) { c.SaveTranscriptions = enabled })
+}
+
+func (cm *ConfigManager) SetTranscriptionOutputDir(dir string) error {
+	return cm.update(func(c *Config) { c.TranscriptionOutputDir = dir })
 }
 
 // SetAudioInputDevice updates the audio input device setting
