@@ -5,6 +5,7 @@ export namespace main {
 	    recordingTime: number;
 	    lastTranscript: string;
 	    error: string;
+	    transcriptionOutputError: string;
 	    currentModel: string;
 	    currentProvider: string;
 	    modelReady: boolean;
@@ -20,6 +21,7 @@ export namespace main {
 	        this.recordingTime = source["recordingTime"];
 	        this.lastTranscript = source["lastTranscript"];
 	        this.error = source["error"];
+	        this.transcriptionOutputError = source["transcriptionOutputError"];
 	        this.currentModel = source["currentModel"];
 	        this.currentProvider = source["currentProvider"];
 	        this.modelReady = source["modelReady"];
@@ -129,6 +131,8 @@ export namespace models {
 	    openaiApiKey?: string;
 	    audioInputDevice?: string;
 	    autoPaste: boolean;
+	    saveTranscriptions: boolean;
+	    transcriptionOutputDir: string;
 	    showNotification: boolean;
 	    recordingHotkey: string;
 	    cancelHotkey: string;
@@ -147,6 +151,8 @@ export namespace models {
 	        this.openaiApiKey = source["openaiApiKey"];
 	        this.audioInputDevice = source["audioInputDevice"];
 	        this.autoPaste = source["autoPaste"];
+	        this.saveTranscriptions = source["saveTranscriptions"];
+	        this.transcriptionOutputDir = source["transcriptionOutputDir"];
 	        this.showNotification = source["showNotification"];
 	        this.recordingHotkey = source["recordingHotkey"];
 	        this.cancelHotkey = source["cancelHotkey"];

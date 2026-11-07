@@ -23,6 +23,8 @@ import {
   GetConfig,
   SetAutoPaste,
   SetSoundEnabled,
+  SetSaveTranscriptions,
+  ChooseTranscriptionOutputDir,
   GetHistory,
   ClearHistory,
   CopyHistoryItem,
@@ -72,6 +74,7 @@ interface AppState {
   recordingTime: number;
   lastTranscript: string;
   error: string;
+  transcriptionOutputError: string;
   currentModel: string;
   currentProvider: string;
   modelReady: boolean;
@@ -85,6 +88,8 @@ interface Config {
   audioInputDevice?: string;
   autoPaste: boolean;
   soundEnabled?: boolean;
+  saveTranscriptions?: boolean;
+  transcriptionOutputDir?: string;
 }
 
 interface HistoryItem {
@@ -123,6 +128,7 @@ function App() {
     recordingTime: 0,
     lastTranscript: '',
     error: '',
+    transcriptionOutputError: '',
     currentModel: 'base.en',
     currentProvider: 'local',
     modelReady: false,
@@ -132,6 +138,9 @@ function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null);
+  const [outputSettingsBusy, setOutputSettingsBusy] = useState(false);
+  const [outputSettingsError, setOutputSettingsError] = useState('');
+  const outputSettingsInFlightRef = useRef(false);
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [apiKey, setApiKey] = useState('');
   const downloadState = useModelDownload();
@@ -365,6 +374,22 @@ function App() {
 
   const handleCancelRecording = useCallback(async () => {
     try { await CancelRecording(); } catch (err) { LogError(`[frontend] CancelRecording failed: ${err}`); }
+  }, []);
+
+  const updateOutputSettings = useCallback(async (change: () => Promise<unknown>) => {
+    if (outputSettingsInFlightRef.current) return;
+    outputSettingsInFlightRef.current = true;
+    setOutputSettingsBusy(true);
+    setOutputSettingsError('');
+    try {
+      await change();
+      setConfig(await GetConfig());
+    } catch (err) {
+      setOutputSettingsError(errorMessage(err));
+    } finally {
+      outputSettingsInFlightRef.current = false;
+      setOutputSettingsBusy(false);
+    }
   }, []);
 
   // Global escape key handler - always active at app level
@@ -821,6 +846,13 @@ function App() {
           )}
         </div>
 
+        {appState.transcriptionOutputError && (
+          <div className="transcription-output-error" role="alert">
+            <span>{appState.transcriptionOutputError}. The transcription is still available in History.</span>
+            <button className="link-button" onClick={() => setCurrentPage('settings')}>Open Settings</button>
+          </div>
+        )}
+
         {currentPage === 'home' && (
           <div className="home-page">
             {/* Stats Bar */}
@@ -1081,6 +1113,43 @@ function App() {
                   </div>
                 </div>
               )}
+            </section>
+
+            <section className="settings-section transcription-file-settings">
+              <h2>Transcription files</h2>
+              <div className="setting-row">
+                <div className="setting-info">
+                  <label htmlFor="save-transcriptions">Save transcriptions as .txt</label>
+                  <p>Automatically save each completed transcription as a separate text file.</p>
+                </div>
+                <label className="switch">
+                  <input
+                    id="save-transcriptions"
+                    type="checkbox"
+                    checked={config?.saveTranscriptions ?? false}
+                    disabled={outputSettingsBusy || !config?.transcriptionOutputDir}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      updateOutputSettings(() => SetSaveTranscriptions(enabled));
+                    }}
+                  />
+                  <span className="slider" />
+                </label>
+              </div>
+              <div className="setting-row">
+                <div className="setting-info transcription-output-folder">
+                  <label>Transcription output folder</label>
+                  <p>{config?.transcriptionOutputDir || 'Choose an output folder to enable automatic saving.'}</p>
+                </div>
+                <button
+                  className="link-button"
+                  disabled={outputSettingsBusy || !config}
+                  onClick={() => updateOutputSettings(ChooseTranscriptionOutputDir)}
+                >
+                  {config?.transcriptionOutputDir ? 'Change folder' : 'Choose folder'}
+                </button>
+              </div>
+              {outputSettingsError && <p className="output-settings-error" role="alert">{outputSettingsError}</p>}
             </section>
 
             <section className="settings-section">

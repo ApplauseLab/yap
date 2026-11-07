@@ -938,6 +938,61 @@ body {
   opacity: 0.8;
 }
 
+.transcription-output-folder {
+  min-width: 0;
+}
+
+.transcription-file-settings .setting-row {
+  gap: 16px;
+}
+
+.transcription-file-settings .switch {
+  flex-shrink: 0;
+}
+
+.transcription-output-folder p {
+  overflow-wrap: anywhere;
+}
+
+.transcription-output-error {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: rgba(255, 69, 58, 0.1);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.transcription-output-error span {
+  min-width: 0;
+}
+
+.transcription-output-error button,
+.setting-row > button {
+  flex-shrink: 0;
+}
+
+.output-settings-error {
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.switch input:disabled + .slider {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.switch input:focus-visible + .slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 /* History Page */
 .history-page {
   flex: 1;

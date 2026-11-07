@@ -11,6 +11,8 @@ export function CheckAccessibilityPermission():Promise<boolean>;
 
 export function CheckMicrophonePermission():Promise<string>;
 
+export function ChooseTranscriptionOutputDir():Promise<string>;
+
 export function ClearHistory():Promise<void>;
 
 export function CopyHistoryItem(arg1:string):Promise<void>;
@@ -86,6 +88,8 @@ export function SetOpenAIKey(arg1:string):Promise<void>;
 export function SetProvider(arg1:string):Promise<void>;
 
 export function SetRecordingHotkey(arg1:string):Promise<void>;
+
+export function SetSaveTranscriptions(arg1:boolean):Promise<void>;
 
 export function SetSoundEnabled(arg1:boolean):Promise<void>;
 

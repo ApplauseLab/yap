@@ -39,14 +39,15 @@ const (
 
 // AppState is sent to the frontend
 type AppState struct {
-	State           RecordingState `json:"state"`
-	RecordingTime   float64        `json:"recordingTime"`
-	LastTranscript  string         `json:"lastTranscript"`
-	Error           string         `json:"error"`
-	CurrentModel    string         `json:"currentModel"`
-	CurrentProvider string         `json:"currentProvider"`
-	ModelReady      bool           `json:"modelReady"`
-	HotkeyEnabled   bool           `json:"hotkeyEnabled"`
+	State                    RecordingState `json:"state"`
+	RecordingTime            float64        `json:"recordingTime"`
+	LastTranscript           string         `json:"lastTranscript"`
+	Error                    string         `json:"error"`
+	TranscriptionOutputError string         `json:"transcriptionOutputError"`
+	CurrentModel             string         `json:"currentModel"`
+	CurrentProvider          string         `json:"currentProvider"`
+	ModelReady               bool           `json:"modelReady"`
+	HotkeyEnabled            bool           `json:"hotkeyEnabled"`
 }
 
 // HistoryItem represents a transcription history entry
@@ -103,13 +104,14 @@ type App struct {
 	// Serializes native overlay label refreshes.
 	overlayLabelsMu sync.Mutex
 
-	mu              sync.Mutex
-	state           RecordingState
-	lastTranscript  string
-	lastError       string
-	recordStartTime time.Time
-	hotkeyEnabled   bool
-	history         []HistoryItem
+	mu                       sync.Mutex
+	state                    RecordingState
+	lastTranscript           string
+	lastError                string
+	transcriptionOutputError string
+	recordStartTime          time.Time
+	hotkeyEnabled            bool
+	history                  []HistoryItem
 
 	// Tray callback to update icon
 	onTrayUpdate func(recording bool)
@@ -330,14 +332,15 @@ func (a *App) GetState() AppState {
 	}
 
 	return AppState{
-		State:           a.state,
-		RecordingTime:   recordingTime,
-		LastTranscript:  a.lastTranscript,
-		Error:           a.lastError,
-		CurrentModel:    config.Model,
-		CurrentProvider: config.Provider,
-		ModelReady:      modelReady,
-		HotkeyEnabled:   a.hotkeyEnabled,
+		State:                    a.state,
+		RecordingTime:            recordingTime,
+		LastTranscript:           a.lastTranscript,
+		Error:                    a.lastError,
+		TranscriptionOutputError: a.transcriptionOutputError,
+		CurrentModel:             config.Model,
+		CurrentProvider:          config.Provider,
+		ModelReady:               modelReady,
+		HotkeyEnabled:            a.hotkeyEnabled,
 	}
 }
 
@@ -816,6 +819,10 @@ func (a *App) transcribe(samples []float32, duration float64) {
 	soundEnabled := a.configManager != nil && (a.configManager.Get().SoundEnabled == nil || *a.configManager.Get().SoundEnabled)
 	if soundEnabled {
 		sounds.PlayStop()
+	}
+
+	if err == nil {
+		a.saveTranscriptionOutput(text)
 	}
 
 	a.emitState()
