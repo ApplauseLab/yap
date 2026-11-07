@@ -158,6 +158,11 @@ jobs:
           fi
 
           KEYCHAIN="$RUNNER_TEMP/yap-signing.keychain-db"
+          umask 077
+          # Install cleanup before decoding or importing any private material.
+          trap 'rm -f "$RUNNER_TEMP/cert.p12"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
@@ -256,8 +261,12 @@ jobs:
           trap - EXIT
 
       - name: Clean up signing keychain
-        if: always() && steps.signing.outputs.keychain != ''
-        run: security delete-keychain "${{ steps.signing.outputs.keychain }}" || true
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12"
+          if [ -f "$RUNNER_TEMP/yap-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/yap-signing.keychain-db"
+          fi
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4

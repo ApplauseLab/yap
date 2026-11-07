@@ -8,11 +8,7 @@
     <key>com.apple.security.device.audio-input</key>
     <true/>
 
-    <!-- internal/transcribe points GGML_BACKEND_PATH at Resources/libexec/libggml-*.so
-         and ggml dlopens the rest by scanning that directory. Those modules are signed
-         with the same identity as the app, but they are plain .so files rather than
-         bundled frameworks, so library validation rejects them without this. -->
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
+    <!-- Bundled libraries and ggml modules share the app's signing team, so keep
+         Hardened Runtime library validation enabled. -->
 </dict>
 </plist>

@@ -2,10 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- whisper-cli and whisper-server dlopen the ggml backend modules the same way the
-         app does. They read audio from files handed to them by Yap and never touch the
-         microphone, so they deliberately do not get com.apple.security.device.audio-input. -->
-    <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
+    <!-- Helpers load same-team signed ggml modules and read audio files.
+         No library-validation exception or microphone entitlement is needed. -->
 </dict>
 </plist>

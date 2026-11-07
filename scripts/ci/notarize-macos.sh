@@ -10,6 +10,7 @@
 # `brew install --cask` does) needs an online Gatekeeper check to launch the first time.
 # Stapling the app as well keeps first launch working offline.
 set -euo pipefail
+umask 077
 
 TARGET="${1:?path to .app or .dmg required}"
 TARGET="$(cd "$(dirname "$TARGET")" && pwd)/$(basename "$TARGET")"
@@ -20,9 +21,12 @@ TARGET="$(cd "$(dirname "$TARGET")" && pwd)/$(basename "$TARGET")"
 
 WORK="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/yap-notarize.XXXXXX")"
 KEY_FILE="$WORK/AuthKey.p8"
-printf '%s' "$AC_PRIVATE_KEY" > "$KEY_FILE"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+printf '%s' "$AC_PRIVATE_KEY" > "$KEY_FILE"
+unset AC_PRIVATE_KEY
 
 # The notary service only accepts zip, dmg and pkg, so a bundle is zipped for upload
 # while the ticket is still stapled to the original .app on disk.
