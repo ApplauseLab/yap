@@ -8,6 +8,10 @@ package overlay
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#include <pthread.h>
+
+enum { WaveformWidth = 340, WaveformBarWidth = 3, WaveformGap = 3,
+       WaveformBars = WaveformWidth / (WaveformBarWidth + WaveformGap) };
 
 // Global references
 static NSPanel *gOverlayPanel = nil;
@@ -17,9 +21,9 @@ static NSTextField *gStatusLabel = nil;
 static NSButton *gStopButton = nil;
 static NSButton *gCancelButton = nil;
 static float gWaveformPhase = 0.0;
-static float gCurrentAudioLevel = 0.0;
-static float gLevelHistory[50];
+static float gLevelHistory[WaveformBars];
 static int gLevelHistoryIndex = 0;
+static pthread_mutex_t gLevelHistoryMutex = PTHREAD_MUTEX_INITIALIZER;
 static id gButtonMonitor = nil;
 static NSString *gStopKeyLabel = nil;
 static NSString *gCancelKeyLabel = nil;
@@ -43,18 +47,22 @@ static NSImage* drawWaveformImage(float phase, CGFloat width, CGFloat height) {
     NSColor *barColor = [NSColor colorWithRed:0.0 green:1.0 blue:0.31 alpha:1.0]; // #00ff4e
     [barColor setFill];
     
-    CGFloat barWidth = 3.0;
-    CGFloat gap = 3.0;
+    CGFloat barWidth = WaveformBarWidth;
+    CGFloat gap = WaveformGap;
     CGFloat totalBarWidth = barWidth + gap;
-    int numBars = (int)(width / totalBarWidth);
-    int historySize = 50;
+    int numBars = MIN((int)(width / totalBarWidth), WaveformBars);
+    float history[WaveformBars];
+    pthread_mutex_lock(&gLevelHistoryMutex);
+    memcpy(history, gLevelHistory, sizeof(history));
+    int nextIndex = gLevelHistoryIndex;
+    pthread_mutex_unlock(&gLevelHistoryMutex);
     
     for (int i = 0; i < numBars; i++) {
         CGFloat x = i * totalBarWidth;
         
         // Map bar index to level history
-        int historyIndex = (gLevelHistoryIndex - numBars + i + historySize) % historySize;
-        float level = gLevelHistory[historyIndex];
+        int historyIndex = (nextIndex - numBars + i + WaveformBars) % WaveformBars;
+        float level = history[historyIndex];
         
         // Add slight animation for visual interest
         CGFloat wave = sin((CGFloat)i * 0.3 + phase) * 0.05;
@@ -78,10 +86,10 @@ static NSImage* drawWaveformImage(float phase, CGFloat width, CGFloat height) {
 
 // Update audio level (called from background thread, must be thread-safe)
 static void updateAudioLevel(float level) {
-    // Simple atomic-style update (these are just floats, safe to write)
-    gCurrentAudioLevel = level;
+    pthread_mutex_lock(&gLevelHistoryMutex);
     gLevelHistory[gLevelHistoryIndex] = level;
-    gLevelHistoryIndex = (gLevelHistoryIndex + 1) % 50;
+    gLevelHistoryIndex = (gLevelHistoryIndex + 1) % WaveformBars;
+    pthread_mutex_unlock(&gLevelHistoryMutex);
 }
 
 static NSString* buttonTitle(NSString *action, NSString *keyLabel) {
@@ -232,7 +240,7 @@ static void animationTick(void) {
     if (gWaveformImageView == nil) return;
     
     gWaveformPhase += 0.15;
-    NSImage *img = drawWaveformImage(gWaveformPhase, 340, 35);
+    NSImage *img = drawWaveformImage(gWaveformPhase, WaveformWidth, 35);
     [gWaveformImageView setImage:img];
 }
 
@@ -242,13 +250,15 @@ static void showOverlay(void) {
         createOverlayPanel();
         
         // Initialize level history
-        for (int i = 0; i < 50; i++) {
+        pthread_mutex_lock(&gLevelHistoryMutex);
+        for (int i = 0; i < WaveformBars; i++) {
             gLevelHistory[i] = 0.1;
         }
         gLevelHistoryIndex = 0;
+        pthread_mutex_unlock(&gLevelHistoryMutex);
         
         // Initial waveform
-        NSImage *img = drawWaveformImage(0, 340, 35);
+        NSImage *img = drawWaveformImage(0, WaveformWidth, 35);
         [gWaveformImageView setImage:img];
         
         // Start animation timer
