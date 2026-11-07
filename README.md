@@ -33,7 +33,7 @@ Built with [Wails](https://wails.io/) (Go + React).
 
 | Platform | Download |
 |----------|----------|
-| **macOS** (Apple Silicon, Intel via Rosetta) | [DMG Installer](https://github.com/ApplauseLab/yap/releases/latest) |
+| **macOS 11+** (Apple Silicon) | `brew install --cask applauselab/tap/yap` · [DMG Installer](https://github.com/ApplauseLab/yap/releases/latest) |
 | **Windows** (x64) | [Installer](https://github.com/ApplauseLab/yap/releases/latest) |
 | **Linux** (x64) | [AppImage](https://github.com/ApplauseLab/yap/releases/latest) · [DEB](https://github.com/ApplauseLab/yap/releases/latest) |
 
@@ -69,9 +69,14 @@ English-only models (e.g., `base.en`) are faster and more accurate for English.
 ### Download Release
 
 1. Download the installer for your platform from the [Releases page](https://github.com/ApplauseLab/yap/releases/latest)
-2. **macOS**: Open the DMG and drag to Applications
+2. **macOS**: `brew install --cask applauselab/tap/yap`, or open the DMG and drag to Applications
 3. **Windows**: Run the installer
 4. **Linux**: `chmod +x *.AppImage && ./Yap-*.AppImage` or `sudo dpkg -i *.deb`
+
+macOS builds are signed with a Developer ID certificate and notarized by Apple, so they
+open without a Gatekeeper warning. On first launch Yap asks for Microphone and
+Accessibility access; the global hotkey and auto-paste do not work until Accessibility is
+granted.
 
 ### Build from Source
 

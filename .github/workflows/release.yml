@@ -16,6 +16,10 @@ env:
   NODE_VERSION: '20'
   # The Wails CLI version is read from go.mod in each build job.
   WHISPER_CPP_VERSION: 'v1.9.5'
+  # Floor for every macOS binary, enforced against LSMinimumSystemVersion by
+  # bundle-macos-runtime.sh. 11.0 is the oldest release that runs on Apple Silicon,
+  # which is the only architecture the macOS job builds.
+  MACOS_DEPLOYMENT_TARGET: '11.0'
   # microsoft/vcpkg release 2026.10.16
   VCPKG_COMMIT: '9eec002df1cd109f8f104cd966a763daf9751489'
 
@@ -68,7 +72,12 @@ jobs:
 
       - name: Install macOS dependencies
         run: |
-          brew install portaudio create-dmg
+          brew install create-dmg
+
+      # From source rather than Homebrew: a bottle is compiled for the OS it was bottled
+      # on, so the runner's macOS would silently become the app's real minimum.
+      - name: Build PortAudio
+        run: scripts/ci/build-portaudio-macos.sh "$RUNNER_TEMP/portaudio"
 
       # Built from source at WHISPER_CPP_VERSION like Windows and Linux, so the bundle
       # does not follow Homebrew's whisper.cpp/ggml/libomp versions.
@@ -85,9 +94,27 @@ jobs:
         run: npm install
         working-directory: frontend
 
+      # PKG_CONFIG_PATH points cgo at the from-source PortAudio; the Go binding resolves
+      # it with `#cgo pkg-config: portaudio-2.0`, so without this it links Homebrew's.
+      # CGO_CFLAGS/CGO_LDFLAGS are set as well because Go's build cache keys on those but
+      # not on PKG_CONFIG_PATH: a cache entry from a build that used Homebrew's PortAudio
+      # is otherwise reused verbatim, silently relinking the wrong library.
       - name: Build macOS App
+        env:
+          PKG_CONFIG_PATH: ${{ runner.temp }}/portaudio/lib/pkgconfig
+          CGO_CFLAGS: -I${{ runner.temp }}/portaudio/include
+          CGO_LDFLAGS: -L${{ runner.temp }}/portaudio/lib
+          MACOSX_DEPLOYMENT_TARGET: ${{ env.MACOS_DEPLOYMENT_TARGET }}
         run: |
           wails build -platform darwin/arm64 -o "Yap" -ldflags "-X main.appVersion=${{ needs.prepare.outputs.version }}"
+
+          # Fails loudly if the cache hazard above ever recurs, rather than shipping a
+          # binary that needs a macOS newer than the one the app advertises.
+          if otool -L build/bin/Yap.app/Contents/MacOS/Yap | grep -q '/opt/homebrew/.*portaudio'; then
+            echo "::error::Yap linked Homebrew's PortAudio instead of the from-source build"
+            otool -L build/bin/Yap.app/Contents/MacOS/Yap | grep -i portaudio
+            exit 1
+          fi
 
       - name: Cache Whisper smoke-test model
         uses: actions/cache@v4
@@ -108,8 +135,76 @@ jobs:
             exit 1
           fi
 
+      # Secrets are unavailable to forks, so unsigned dev builds stay possible while a
+      # real release without a certificate fails instead of silently shipping ad-hoc.
+      - name: Import signing certificate
+        id: signing
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if [ -z "$CERT_P12" ] || [ -z "$SIGN_IDENTITY" ]; then
+            if [ "$VERSION" != "dev" ]; then
+              echo "::error::MACOS_CERT_P12/MACOS_SIGN_IDENTITY are required to release ${VERSION}"
+              exit 1
+            fi
+            echo "::warning::No signing certificate; building ad-hoc signed and skipping notarization"
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/yap-signing.keychain-db"
+          umask 077
+          # Install cleanup before decoding or importing any private material.
+          trap 'rm -f "$RUNNER_TEMP/cert.p12"' EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Lets codesign use the key without an interactive authorization prompt.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+
+          # Prepend to the search list instead of replacing it, so the runner's default
+          # keychains still resolve. Word splitting is intended: each existing path has
+          # to arrive as its own argument.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          if ! security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$SIGN_IDENTITY"; then
+            echo "::error::Identity not found in keychain: $SIGN_IDENTITY"
+            security find-identity -v -p codesigning "$KEYCHAIN"
+            exit 1
+          fi
+          echo "identity=$SIGN_IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "notarize=true" >> "$GITHUB_OUTPUT"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+
       - name: Bundle macOS runtime libraries
+        env:
+          MACOS_SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          PORTAUDIO_PREFIX: ${{ runner.temp }}/portaudio
         run: scripts/ci/bundle-macos-runtime.sh build/bin/Yap.app "$RUNNER_TEMP/whisper.cpp" "$HOME/yap-models/ggml-tiny.en.bin"
+
+      # Before the DMG is built, so the image contains an already-stapled app and a copy
+      # dragged out of it launches offline without an online Gatekeeper check.
+      - name: Notarize and staple app
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          AC_KEY_ID: ${{ secrets.AC_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.AC_ISSUER_ID }}
+          AC_PRIVATE_KEY: ${{ secrets.AC_PRIVATE_KEY }}
+        run: scripts/ci/notarize-macos.sh build/bin/Yap.app
 
       - name: Create DMG
         run: |
@@ -134,6 +229,44 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/Yap.app"
           hdiutil detach "$MOUNT_DIR"
           trap - EXIT
+
+      - name: Sign, notarize and staple DMG
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          AC_KEY_ID: ${{ secrets.AC_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.AC_ISSUER_ID }}
+          AC_PRIVATE_KEY: ${{ secrets.AC_PRIVATE_KEY }}
+          IDENTITY: ${{ steps.signing.outputs.identity }}
+        run: |
+          DMG="Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+          codesign --verify --strict --verbose=2 "$DMG"
+          scripts/ci/notarize-macos.sh "$DMG"
+
+      # What a user downloading the DMG actually gets. spctl is the same assessment
+      # Gatekeeper runs on first open, so this fails here rather than on their machine.
+      - name: Verify Gatekeeper acceptance
+        if: steps.signing.outputs.notarize == 'true'
+        run: |
+          DMG="Yap-${{ needs.prepare.outputs.version }}-macOS.dmg"
+          spctl --assess -vvv --type open --context context:primary-signature "$DMG"
+
+          MOUNT_OUTPUT=$(hdiutil attach -readonly -nobrowse "$DMG")
+          MOUNT_DIR=$(printf '%s\n' "$MOUNT_OUTPUT" | awk '/\/Volumes\// {print substr($0, index($0, "/Volumes/")); exit}')
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
+          spctl --assess -vvv --type execute "$MOUNT_DIR/Yap.app"
+          xcrun stapler validate "$MOUNT_DIR/Yap.app"
+          codesign --display --verbose=4 "$MOUNT_DIR/Yap.app" 2>&1 | grep -E '^(Authority|TeamIdentifier)'
+          hdiutil detach "$MOUNT_DIR"
+          trap - EXIT
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12"
+          if [ -f "$RUNNER_TEMP/yap-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/yap-signing.keychain-db"
+          fi
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
@@ -716,7 +849,9 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: Yap ${{ needs.prepare.outputs.version }}
           draft: false
-          prerelease: ${{ contains(needs.prepare.outputs.version, 'dev') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'alpha') }}
+          # Any semver pre-release suffix, so -rc.1 is not published as a stable release
+          # the way an explicit dev/beta/alpha list allowed.
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
@@ -746,7 +881,58 @@ jobs:
 
             ### Installation
 
-            **macOS:** Open the DMG, drag to Applications folder
+            **macOS:** `brew install --cask applauselab/tap/yap`, or open the DMG and drag to Applications
             **Windows:** Run the installer
             **Linux (AppImage):** `chmod +x *.AppImage && ./Yap-*.AppImage`
             **Linux (DEB):** `sudo apt install ./Yap-*.deb`
+
+  # Stable releases only: a pre-release must not become the default `brew install` target.
+  update-homebrew-tap:
+    needs: [prepare, release]
+    if: ${{ !contains(needs.prepare.outputs.version, '-') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout yap
+        uses: actions/checkout@v4
+        with:
+          path: yap
+
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: ApplauseLab/homebrew-tap
+          path: tap
+          # GITHUB_TOKEN is scoped to this repository, so pushing to the tap needs a PAT
+          # with contents:write on ApplauseLab/homebrew-tap.
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Publish cask
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          URL="https://github.com/ApplauseLab/yap/releases/download/v${VERSION}/Yap-${VERSION}-macOS.dmg"
+
+          # Hash the published asset rather than a CI artifact, so the cask can only
+          # ever describe the exact file users download.
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$RUNNER_TEMP/yap.dmg" "$URL"
+          SHA="$(shasum -a 256 "$RUNNER_TEMP/yap.dmg" | cut -d' ' -f1)"
+
+          mkdir -p tap/Casks
+          sed -E -e "s|^  version \".*\"|  version \"${VERSION}\"|" \
+                 -e "s|^  sha256 \".*\"|  sha256 \"${SHA}\"|" \
+                 yap/packaging/homebrew/yap.rb > tap/Casks/yap.rb
+
+          grep -q "version \"${VERSION}\"" tap/Casks/yap.rb || { echo "::error::version not substituted"; exit 1; }
+          grep -q "sha256 \"${SHA}\"" tap/Casks/yap.rb || { echo "::error::sha256 not substituted"; exit 1; }
+
+          cd tap
+          if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "Cask already at ${VERSION}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/yap.rb
+          git commit -m "yap ${VERSION}"
+          git push
