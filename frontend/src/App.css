@@ -1374,6 +1374,45 @@ body {
   background: rgba(255, 69, 58, 0.08);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* Fit the recovery flow within the desktop window, including its minimum height. */
+@media (max-height: 760px) {
+  .accessibility-recovery {
+    padding: 36px 24px 20px;
+  }
+
+  .accessibility-recovery-card {
+    padding: 20px 28px;
+  }
+
+  .accessibility-recovery-icon {
+    width: 40px;
+    height: 40px;
+    margin-bottom: 12px;
+    border-radius: 14px;
+  }
+
+  .accessibility-recovery-copy h1 {
+    font-size: 28px;
+    margin-bottom: 10px;
+  }
+
+  .accessibility-recovery-steps {
+    gap: 6px 14px;
+    margin-top: 12px;
+    padding: 12px 18px;
+  }
+
+  .accessibility-recovery-actions {
+    margin-top: 12px;
+  }
+
+  .accessibility-recovery-error {
+    margin-top: 12px;
+    padding: 8px 12px;
+  }
 }
 
 @media (max-width: 640px) {
