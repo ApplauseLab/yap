@@ -27,7 +27,9 @@ function setup({
   state = appState(), models = MODELS, download = IDLE_DOWNLOAD,
   platform = 'linux' as string | Promise<string>, hotkeys = ['rightalt', 'escape'],
   config = {} as Record<string, unknown>,
+  externalShortcuts = undefined as Record<string, unknown> | undefined,
 } = {}) {
+  api.GetExternalShortcuts.mockResolvedValue(externalShortcuts);
   api.IsOnboardingCompleted.mockResolvedValue(true);
   api.GetPlatform.mockImplementation(() => Promise.resolve(platform));
   api.GetState.mockResolvedValue(state);
@@ -291,5 +293,47 @@ describe('Automatic transcription files', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('disk full');
     act(() => EventsEmit('stateChanged', appState()));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('App on Wayland', () => {
+  beforeEach(() => {
+    resetListeners();
+    Object.values(api).forEach((fn) => {
+      fn.mockReset();
+      fn.mockImplementation(() => Promise.resolve());
+    });
+  });
+
+  const omarchy = {
+    required: true, configFile: '~/.config/hypr/bindings.lua',
+    snippet: 'o.bind("SUPER + ALT + Y", "Yap dictation", "/home/me/Yap.AppImage toggle")',
+  };
+
+  it('shows the compositor binds instead of key capture', async () => {
+    setup({ externalShortcuts: omarchy });
+    fireEvent.click(await screen.findByText('Settings', { selector: '.action-title' }));
+    expect(await screen.findByLabelText('Shortcut commands')).toHaveTextContent(omarchy.snippet);
+    expect(screen.getByText('~/.config/hypr/bindings.lua')).toBeInTheDocument();
+    expect(screen.queryByText('Recording Key')).toBeNull();
+    expect(screen.queryByText('Hotkeys Active')).toBeNull();
+    // Yap does not know which key the user bound, so it shows none.
+    expect(document.querySelector('.hotkey-hint')).toBeNull();
+    expect(document.querySelector('.action-shortcut')).toBeNull();
+  });
+
+  it('lists plain commands on desktops without a config file', async () => {
+    setup({ externalShortcuts: { required: true, configFile: '', snippet: 'yap toggle\nyap cancel' } });
+    fireEvent.click(await screen.findByText('Settings', { selector: '.action-title' }));
+    expect((await screen.findByLabelText('Shortcut commands')).textContent).toBe('yap toggle\nyap cancel');
+    expect(screen.getByText(/keyboard settings/)).toBeInTheDocument();
+  });
+
+  it('keeps key capture on X11', async () => {
+    setup({ externalShortcuts: { required: false, configFile: '', snippet: '' } });
+    fireEvent.click(await screen.findByText('Settings', { selector: '.action-title' }));
+    expect(await screen.findByText('Recording Key')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Shortcut commands')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.hotkey-hint')).toHaveTextContent('Right Alt'));
   });
 });

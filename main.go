@@ -28,6 +28,8 @@ func main() {
 	// Yap re-executes itself as the Whisper worker watchdog; that mode must
 	// not initialise logging, the tray, or Wails.
 	transcribe.RunWorkerWatchdogIfRequested()
+	// `yap toggle` and friends talk to the running app and exit.
+	runLinuxCLI()
 
 	if err := filelogger.Init(); err != nil {
 		println("Warning: Failed to initialize file logger:", err.Error())

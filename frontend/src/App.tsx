@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import { RecordingOverlay } from './RecordingOverlay';
 import { formatHotkeyLabel, formatHotkeyShortLabel } from './hotkeyLabels';
+import { ExternalShortcuts, NO_EXTERNAL_SHORTCUTS, ShortcutSetup } from './ShortcutSetup';
 import { Onboarding } from './Onboarding';
 import { ModelsLibrary } from './ModelsLibrary';
 import { useModelDownload } from './useModelDownload';
@@ -38,6 +39,7 @@ import {
   SetRecordingHotkey,
   GetCancelHotkey,
   SetCancelHotkey,
+  GetExternalShortcuts,
   GetPlatform,
   CheckAccessibilityPermission,
   RequestAccessibilityPermission,
@@ -165,6 +167,9 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [platform, setPlatform] = useState<string>('darwin');
   const [hotkeyLabelsReady, setHotkeyLabelsReady] = useState<boolean>(false);
+  // On Wayland the compositor owns the shortcuts, so no key labels are shown.
+  const [externalShortcuts, setExternalShortcuts] = useState<ExternalShortcuts>(NO_EXTERNAL_SHORTCUTS);
+  const showHotkeyLabels = hotkeyLabelsReady && !externalShortcuts.required;
   const [isCapturingHotkey, setIsCapturingHotkey] = useState<boolean>(false);
   const [isCapturingCancelKey, setIsCapturingCancelKey] = useState<boolean>(false);
   const [accessibilityRecovery, setAccessibilityRecovery] = useState<AccessibilityRecoveryState>('checking');
@@ -294,6 +299,7 @@ function App() {
       GetRecordingHotkey().then((h: string) => setCurrentHotkey(h)),
       GetCancelHotkey().then((h: string) => setCancelHotkey(h)),
       GetPlatform().then((p: string) => setPlatform(p)),
+      GetExternalShortcuts().then((s) => setExternalShortcuts(s || NO_EXTERNAL_SHORTCUTS)),
     ]).then(() => setHotkeyLabelsReady(true));
     LogInfo('[frontend] App initial data load requested');
 
@@ -821,7 +827,7 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          {hotkeyLabelsReady && (
+          {showHotkeyLabels && (
             <div className="hotkey-hint">
               <kbd>{formatKeyDisplay(currentHotkey)}</kbd>
               <span>to record</span>
@@ -956,7 +962,7 @@ function App() {
                       {needsDownload ? 'Download selected model first' : 'Turn your voice to text with a single click'}
                     </span>
                   </div>
-                  {hotkeyLabelsReady && (
+                  {showHotkeyLabels && (
                     <kbd className="action-shortcut">{getHotkeyShortDisplay(currentHotkey)}</kbd>
                   )}
                 </div>
@@ -1210,7 +1216,10 @@ function App() {
 
             <section className="settings-section">
               <h2>Keyboard Shortcuts</h2>
-              
+
+              {externalShortcuts.required ? (
+                <ShortcutSetup shortcuts={externalShortcuts} />
+              ) : (<>
               <div className="setting-row">
                 <div className="setting-info">
                   <label>Recording Key</label>
@@ -1261,6 +1270,7 @@ function App() {
                   <p>Open System Settings → Privacy &amp; Security → Accessibility, then toggle Yap off and back on.</p>
                 )}
               </div>
+              </>)}
             </section>
 
             <div className="settings-footer">
@@ -1388,8 +1398,8 @@ function App() {
       isRecording={appState.state === 'recording'}
       onStop={handleToggleRecording}
       onCancel={handleCancelRecording}
-      stopKeyLabel={getHotkeyShortDisplay(currentHotkey)}
-      cancelKeyLabel={getHotkeyShortDisplay(cancelHotkey)}
+      stopKeyLabel={externalShortcuts.required ? '' : getHotkeyShortDisplay(currentHotkey)}
+      cancelKeyLabel={externalShortcuts.required ? '' : getHotkeyShortDisplay(cancelHotkey)}
     />
     </>
   );

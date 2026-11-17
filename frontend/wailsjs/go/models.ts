@@ -42,6 +42,23 @@ export namespace main {
 	        this.isDefault = source["isDefault"];
 	    }
 	}
+	
+	export class ExternalShortcuts {
+	    required: boolean;
+	    configFile: string;
+	    snippet: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalShortcuts(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.required = source["required"];
+	        this.configFile = source["configFile"];
+	        this.snippet = source["snippet"];
+	    }
+	}
 	export class HistoryItem {
 	    id: string;
 	    text: string;

@@ -17,9 +17,11 @@ import {
   SetOnboardingCompleted,
   GetRecordingHotkeyDisplayName,
   GetPlatform,
+  GetExternalShortcuts,
 } from '../wailsjs/go/main/App';
 import { EventsOn, LogError, LogInfo } from '../wailsjs/runtime/runtime';
 import { useModelDownload } from './useModelDownload';
+import { ExternalShortcuts, NO_EXTERNAL_SHORTCUTS, ShortcutSetup } from './ShortcutSetup';
 import { ModelDownloadState, ModelInfo, errorMessage, formatBytes, fullModelName, isDownloadActive } from './modelTypes';
 
 interface AppState {
@@ -58,6 +60,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [accessibilityStatus, setAccessibilityStatus] = useState<string>('undetermined');
   const [hotkeyName, setHotkeyName] = useState<string>('Right Option');
   const [platform, setPlatform] = useState<string>('darwin');
+  const [externalShortcuts, setExternalShortcuts] = useState<ExternalShortcuts>(NO_EXTERNAL_SHORTCUTS);
   const [hotkeyTestState, setHotkeyTestState] = useState<HotkeyTestState>('waiting');
   const [testTranscript, setTestTranscript] = useState<string>('');
   const [hotkeyTestError, setHotkeyTestError] = useState<string>('');
@@ -83,6 +86,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     GetPlatform().then((p: string) => {
       setPlatform(p);
     });
+    GetExternalShortcuts().then((s) => setExternalShortcuts(s || NO_EXTERNAL_SHORTCUTS));
   }, []);
 
   useEffect(() => {
@@ -775,6 +779,8 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     );
   };
 
+  const shortcutKey = externalShortcuts.required ? 'your shortcut' : <kbd>{hotkeyName}</kbd>;
+
   const renderHotkeyTest = () => (
     <div className="onboarding-step hotkey-test-step">
       <div className="step-header">
@@ -792,7 +798,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <path d="M9 9h6v6H9z"/>
                 </svg>
               </div>
-              <div className="hotkey-test-label">Press <kbd>{hotkeyName}</kbd> to start recording</div>
+              <div className="hotkey-test-label">Press {shortcutKey} to start recording</div>
             </>
           )}
           {hotkeyTestState === 'recording' && (
@@ -804,7 +810,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
                 </svg>
               </div>
-              <div className="hotkey-test-label">Recording... Press <kbd>{hotkeyName}</kbd> again to stop</div>
+              <div className="hotkey-test-label">Recording... Press {shortcutKey} again to stop</div>
             </>
           )}
           {hotkeyTestState === 'success' && (
@@ -829,7 +835,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
       {hotkeyTestState === 'waiting' && (
         <div className="hotkey-test-hint">
-          <p>{hotkeyTestError || 'Having trouble? Make sure you granted Accessibility permission.'}</p>
+          {externalShortcuts.required ? (<>
+            {hotkeyTestError && <p>{hotkeyTestError}</p>}
+            <ShortcutSetup shortcuts={externalShortcuts} />
+          </>) : (
+            <p>{hotkeyTestError || 'Having trouble? Make sure you granted Accessibility permission.'}</p>
+          )}
         </div>
       )}
       
@@ -840,9 +851,9 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         <button 
           className="primary-button" 
           onClick={() => setStep('ready')}
-          disabled={hotkeyTestState !== 'success'}
+          disabled={hotkeyTestState !== 'success' && !externalShortcuts.required}
         >
-          Continue
+          {hotkeyTestState !== 'success' && externalShortcuts.required ? 'Skip for now' : 'Continue'}
         </button>
       </div>
     </div>

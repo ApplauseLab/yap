@@ -116,6 +116,7 @@ import (
 	"time"
 
 	"yap/internal/logger"
+	"yap/internal/system"
 )
 
 // Callback is the function type for hotkey events
@@ -131,6 +132,9 @@ type Manager struct {
 	stopCh         chan struct{}
 	hotkeyStr      string
 	cancelStr      string
+	// Wayland compositors own global shortcuts: X11 grabs only fire while an
+	// XWayland window is focused, so the compositor runs `yap toggle` instead.
+	external bool
 }
 
 var (
@@ -165,6 +169,7 @@ func NewManager() *Manager {
 	return &Manager{
 		hotkeyStr: "rightalt",
 		cancelStr: "escape",
+		external:  system.IsWaylandSession(),
 	}
 }
 
@@ -174,6 +179,13 @@ func (m *Manager) Register(cb Callback) error {
 	defer m.mu.Unlock()
 
 	if m.running {
+		return nil
+	}
+
+	if m.external {
+		m.hotkeyCallback = cb
+		m.running = true
+		logger.Info("Wayland session: bind `yap toggle` in the compositor for the recording shortcut")
 		return nil
 	}
 
@@ -227,6 +239,11 @@ func (m *Manager) Unregister() error {
 		return nil
 	}
 
+	if m.external {
+		m.running = false
+		return nil
+	}
+
 	close(m.stopCh)
 	C.stopMonitoring()
 	C.closeDisplay()
@@ -241,6 +258,9 @@ func (m *Manager) SetHotkeyType(hotkeyName string) {
 	defer m.mu.Unlock()
 
 	m.hotkeyStr = strings.ToLower(hotkeyName)
+	if m.external {
+		return
+	}
 	keysym := KeyNameToKeysym(m.hotkeyStr)
 
 	if m.running {
@@ -260,6 +280,9 @@ func (m *Manager) SetCancelKey(keyName string) {
 	defer m.mu.Unlock()
 
 	m.cancelStr = strings.ToLower(keyName)
+	if m.external {
+		return
+	}
 	keysym := KeyNameToKeysym(m.cancelStr)
 	C.setCancelKeysym(C.KeySym(keysym))
 

@@ -174,3 +174,53 @@ describe('Onboarding model choice', () => {
     expect(small).toHaveAttribute('aria-checked', 'false');
   });
 });
+
+describe('Onboarding shortcut test', () => {
+  beforeEach(() => {
+    resetListeners();
+    Object.values(api).forEach((fn) => {
+      fn.mockReset();
+      fn.mockImplementation(() => Promise.resolve());
+    });
+  });
+
+  async function openShortcutTest(externalShortcuts?: Record<string, unknown>) {
+    api.GetModels.mockResolvedValue(MODELS);
+    api.GetModelDownloadState.mockResolvedValue(IDLE_DOWNLOAD);
+    api.GetRecordingHotkeyDisplayName.mockResolvedValue('Right Alt');
+    api.GetPlatform.mockResolvedValue('linux');
+    api.GetExternalShortcuts.mockResolvedValue(externalShortcuts);
+    api.CheckMicrophonePermission.mockResolvedValue('granted');
+    render(<Onboarding onComplete={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Get Started' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    // base.en is already downloaded, so the model step goes straight on.
+    await screen.findByRole('radiogroup', { name: 'Choose a Model' });
+    fireEvent.click(document.querySelector('.model-step .primary-button, .primary-button') as HTMLElement);
+    await screen.findByText('Microphone access granted!');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByText('Test Your Hotkey');
+  }
+
+  it('asks for the registered key and requires a successful test', async () => {
+    await openShortcutTest();
+    expect(document.querySelector('.hotkey-test-label')).toHaveTextContent('Press Right Alt to start recording');
+    expect(screen.queryByLabelText('Shortcut commands')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
+  it('on Wayland shows what to bind and lets the user set it up later', async () => {
+    const snippet = 'o.bind("SUPER + ALT + Y", "Yap dictation", "/opt/Yap.AppImage toggle")';
+    await openShortcutTest({ required: true, configFile: '~/.config/hypr/bindings.lua', snippet });
+    expect(document.querySelector('.hotkey-test-label')).toHaveTextContent('Press your shortcut to start recording');
+    expect(screen.getByLabelText('Shortcut commands')).toHaveTextContent(snippet);
+    expect(screen.getByRole('button', { name: 'Skip for now' })).toBeEnabled();
+
+    // Binding the shortcut and using it still completes the test.
+    act(() => EventsEmit('stateChanged', { state: 'recording' }));
+    expect(document.querySelector('.hotkey-test-label')).toHaveTextContent('Press your shortcut again to stop');
+    act(() => EventsEmit('stateChanged', { state: 'transcribing' }));
+    expect(await screen.findByText('Hotkey is working!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+});

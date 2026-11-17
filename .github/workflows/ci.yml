@@ -50,6 +50,34 @@ jobs:
       - name: Test Go packages
         run: go test ./...
 
+  # Linux has its own hotkey, paste and control-socket code that the macOS job
+  # never compiles.
+  test-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev portaudio19-dev pkg-config
+
+      - name: Stub frontend assets
+        run: mkdir -p frontend/dist && touch frontend/dist/index.html
+
+      - name: Vet Linux packages
+        run: go vet -tags webkit2_41 ./...
+
+      - name: Test Go packages
+        run: go test -tags webkit2_41 ./...
+
   # The full module needs CGO (PortAudio, hotkeys), but the Windows-specific
   # transcription runtime code (process lifetime, console, reaper) does not.
   test-windows:

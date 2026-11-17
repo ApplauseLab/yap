@@ -49,13 +49,10 @@ func simulatePasteMacOS() error {
 	return simulatePasteMacOSNative()
 }
 
-// simulatePasteLinux uses xdotool to simulate Ctrl+V
+// simulatePasteLinux sends the paste shortcut with xdotool on X11, or with the
+// compositor's own input tools on Wayland.
 func simulatePasteLinux() error {
-	cmd := exec.Command("xdotool", "key", "ctrl+v")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to simulate paste (ensure xdotool is installed): %w", err)
-	}
-	return nil
+	return newLinuxPaster().paste()
 }
 
 // simulatePasteWindows uses PowerShell to simulate Ctrl+V

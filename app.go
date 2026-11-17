@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"yap/internal/audio"
+	"yap/internal/control"
 	"yap/internal/crashlog"
 	"yap/internal/hotkey"
 	"yap/internal/logger"
@@ -101,6 +102,7 @@ type App struct {
 	statsManager  *models.StatsManager
 	hotkeyManager *hotkey.Manager
 	overlay       *overlay.Overlay
+	controlServer *control.Server
 	// Serializes native overlay label refreshes.
 	overlayLabelsMu sync.Mutex
 
@@ -239,8 +241,12 @@ func (a *App) startup(ctx context.Context) {
 		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to register hotkey: %v", err))
 	} else {
 		a.hotkeyEnabled = true
-		runtime.LogInfo(a.ctx, fmt.Sprintf("Global hotkey registered: %s", hotkey.GetHotkeyDisplayName(hotkeyType)))
+		if !system.IsWaylandSession() {
+			runtime.LogInfo(a.ctx, fmt.Sprintf("Global hotkey registered: %s", hotkey.GetHotkeyDisplayName(hotkeyType)))
+		}
 	}
+
+	a.startControlServer()
 
 	// Load history from disk
 	a.loadHistory()
@@ -296,6 +302,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Unregister()
+	}
+	if a.controlServer != nil {
+		a.controlServer.Close()
 	}
 	if a.overlay != nil {
 		a.overlay.Destroy()
@@ -1175,7 +1184,9 @@ func (a *App) ReregisterHotkey() error {
 	}
 
 	a.hotkeyEnabled = true
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Hotkey re-registered: %s", hotkey.GetHotkeyDisplayName(hotkeyType)))
+	if !system.IsWaylandSession() {
+		runtime.LogInfo(a.ctx, fmt.Sprintf("Hotkey re-registered: %s", hotkey.GetHotkeyDisplayName(hotkeyType)))
+	}
 	return nil
 }
 

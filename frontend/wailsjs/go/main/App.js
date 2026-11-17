@@ -66,6 +66,10 @@ export function GetCurrentAudioInputDevice() {
   return window['go']['main']['App']['GetCurrentAudioInputDevice']();
 }
 
+export function GetExternalShortcuts() {
+  return window['go']['main']['App']['GetExternalShortcuts']();
+}
+
 export function GetHistory() {
   return window['go']['main']['App']['GetHistory']();
 }

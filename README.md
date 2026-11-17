@@ -73,6 +73,42 @@ English-only models (e.g., `base.en`) are faster and more accurate for English.
 3. **Windows**: Run the installer
 4. **Linux**: `chmod +x *.AppImage && ./Yap-*.AppImage` or `sudo dpkg -i *.deb`
 
+### Linux on Wayland (Omarchy, Hyprland, Sway, GNOME, KDE)
+
+Wayland does not let applications grab global keys or type into other windows, so Yap works with your compositor instead:
+
+- **Shortcuts** are bound in the compositor to `yap toggle` and `yap cancel`, which control the running app. Settings → Keyboard Shortcuts shows the exact lines for your setup.
+- **Clipboard** uses `wl-copy`/`wl-paste` from `wl-clipboard`.
+- **Auto-paste** asks Hyprland to send the paste shortcut (Ctrl+Shift+V in terminals), and otherwise uses `wtype`, then `ydotool`.
+
+On Arch Linux / Omarchy, use the `ubuntu24` AppImage and install its dependencies:
+
+```bash
+sudo pacman -S --needed webkit2gtk-4.1 gtk3 fuse2 wl-clipboard wtype
+chmod +x Yap-*-Linux-ubuntu24.AppImage && ./Yap-*-Linux-ubuntu24.AppImage
+```
+
+Then bind the shortcuts. On Omarchy 4, add to `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + ALT + Y", "Yap dictation", "/path/to/Yap.AppImage toggle")
+o.bind("SUPER + ALT + ESCAPE", "Yap cancel", "/path/to/Yap.AppImage cancel")
+```
+
+Plain Hyprland with a Lua config uses `hl.bind("SUPER + ALT + Y", hl.dsp.exec_cmd("/path/to/Yap.AppImage toggle"))`; a `.conf` config (Hyprland before 0.55, Omarchy 3) uses `bind = SUPER ALT, Y, exec, /path/to/Yap.AppImage toggle`. On other desktops, bind the same commands in the keyboard settings.
+
+| Command | Action |
+|---------|--------|
+| `yap toggle` | Start recording, or stop and transcribe |
+| `yap start` / `yap stop` | Start, or stop and transcribe |
+| `yap cancel` | Discard the current recording |
+| `yap show` | Show the Yap window |
+| `yap status` | Print `ready`, `recording`, `transcribing`, or `error` |
+
+Launching Yap while it is already running shows the existing window. If the window stays blank on NVIDIA, start Yap with `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
+X11 sessions are unchanged: Yap registers the hotkey itself and pastes with `xdotool`.
+
 ### Build from Source
 
 #### Prerequisites
@@ -88,6 +124,9 @@ brew install portaudio
 
 # Ubuntu/Debian
 sudo apt-get install portaudio19-dev
+
+# Arch Linux (build with: wails build -tags webkit2_41)
+sudo pacman -S --needed go npm gtk3 webkit2gtk-4.1 portaudio
 
 # For local transcription (optional)
 brew install whisper-cpp  # macOS

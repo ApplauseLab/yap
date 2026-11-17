@@ -35,6 +35,8 @@ export function GetConfig():Promise<models.Config>;
 
 export function GetCurrentAudioInputDevice():Promise<string>;
 
+export function GetExternalShortcuts():Promise<main.ExternalShortcuts>;
+
 export function GetHistory():Promise<Array<main.HistoryItem>>;
 
 export function GetLogsDir():Promise<string>;
